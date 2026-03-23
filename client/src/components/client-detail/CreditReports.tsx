@@ -888,8 +888,13 @@ export default function ClientDetailCreditReports({ clientId, clientBusinessId }
           </DialogHeader>
           <div className="space-y-3 py-2">
             <p className="text-sm text-muted-foreground">Select a bureau report first, then paste rows from Excel or CSV. Expected column order: Account Name, Open/Closed, Account Type, Status, Balance, Credit Limit, Credit Usage, Date Opened, Monthly Payment, Terms.</p>
-            <Textarea rows={12} value={bulkPasteText} onChange={(e) => setBulkPasteText(e.target.value)} placeholder={"Account Name	Open	Account Type	Status	Balance	Credit Limit	Credit Usage	Date Opened
-Bank of America	Open	Credit Card	Current	4019	5200	77%	2020-10-20"} />
+            <Textarea
+  rows={12}
+  value={bulkPasteText}
+  onChange={(e) => setBulkPasteText(e.target.value)}
+  placeholder={`Account Name	Open/Closed	Account Type	Status	Balance	Credit Limit	Credit Usage	Date Opened
+Bank of America	Open	Credit Card	Current	4019	5200	77%	2020-10-20`}
+/>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowBulkPasteDialog(false)}>Cancel</Button>
