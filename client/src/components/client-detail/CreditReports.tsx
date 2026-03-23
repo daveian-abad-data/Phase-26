@@ -232,10 +232,8 @@ export default function ClientDetailCreditReports({ clientId, clientBusinessId }
 
 
   const parseBulkRows = (raw: string) => {
-    const lines = raw.trim().split(/?
-/).filter(Boolean);
-    if (lines.length === 0) return [];
-    const rows = lines.map((line) => line.split(/	|,/).map((v) => v.trim()));
+  const lines = raw.trim().split(/\r?\n/).filter(Boolean);
+    const rows = lines.map((line) => line.split(/\t|,/).map((v) => v.trim()));
     const firstRow = rows[0].map((v) => v.toLowerCase());
     const hasHeader = firstRow.some((v) => ["account", "status", "balance", "limit", "bureau"].some((k) => v.includes(k)));
     const dataRows = hasHeader ? rows.slice(1) : rows;
