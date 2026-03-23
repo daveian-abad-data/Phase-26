@@ -1,0 +1,1 @@
+ALTER TABLE `funding_applications` MODIFY COLUMN `status` varchar(128) NOT NULL DEFAULT 'Pending';
