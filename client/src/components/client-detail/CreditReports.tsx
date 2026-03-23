@@ -187,7 +187,9 @@ export default function ClientDetailCreditReports({ clientId, clientBusinessId }
     if (!reports) return [];
     return Array.from(new Set(reports.map(r => r.bureau).filter(Boolean))) as string[];
   }, [reports]);
-
+  
+const openAccounts = filteredReports.filter((r) => r.openClosed === "Open");
+const closedAccounts = filteredReports.filter((r) => r.openClosed === "Closed");
 
   const openByCategory = useMemo(() => groupByCategory(openAccounts), [openAccounts]);
   const closedByCategory = useMemo(() => groupByCategory(closedAccounts), [closedAccounts]);
