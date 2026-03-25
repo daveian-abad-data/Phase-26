@@ -169,7 +169,16 @@ const emptyAccount = {
 const emptyInquiry = {
   accountName: "", inquiredOn: "", businessType: "", address: "", contactNumber: "", note: "",
 };
-
+const groupByCategory = (accounts: any[]) => {
+  return {
+    Cards: accounts.filter((a) => a.creditAccountCategory === "Cards"),
+    Car: accounts.filter((a) => a.creditAccountCategory === "Car"),
+    House: accounts.filter((a) => a.creditAccountCategory === "House"),
+    "Secured Loan": accounts.filter((a) => a.creditAccountCategory === "Secured Loan"),
+    "Unsecured Loan": accounts.filter((a) => a.creditAccountCategory === "Unsecured Loan"),
+    Others: accounts.filter((a) => !a.creditAccountCategory || a.creditAccountCategory === "Others"),
+  };
+};
 export default function ClientDetailCreditReports({ clientId, clientBusinessId }: Props) {
   const utils = trpc.useUtils();
   const { data: reports, isLoading: reportsLoading } = trpc.admin.getCreditReports.useQuery({ clientId });
