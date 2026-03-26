@@ -181,24 +181,31 @@ const groupByCategory = (accounts: any[]) => {
 };
 export default function ClientDetailCreditReports({ clientId, clientBusinessId }: Props) {
   const utils = trpc.useUtils();
-  const { data: reports, isLoading: reportsLoading } = trpc.admin.getCreditReports.useQuery({ clientId });
-
   const [filterBureau, setFilterBureau] = useState<string>("all");
   const [selectedReportId, setSelectedReportId] = useState<number | null>(null);
   const [accountView, setAccountView] = useState<"Open" | "Closed">("Open");
 
   const filteredReports = useMemo(() => {
     if (!reports) return [];
-    return reports.filter(r => filterBureau === "all" || r.bureau === filterBureau);
+    return reports.filter((r) => filterBureau === "all" || r.bureau === filterBureau);
   }, [reports, filterBureau]);
 
   const bureauOptions = useMemo(() => {
     if (!reports) return [];
-    return Array.from(new Set(reports.map(r => r.bureau).filter(Boolean))) as string[];
+    return Array.from(new Set(reports.map((r) => r.bureau).filter(Boolean))) as string[];
   }, [reports]);
-  
-const openAccounts = filteredReports.filter((r) => r.openClosed === "Open");
-const closedAccounts = filteredReports.filter((r) => r.openClosed === "Closed");
+
+  const accounts = useMemo(() => {
+    const list = rawAccounts ?? [];
+    let next = list.filter((a) => filterBureau === "all" || a.bureau === filterBureau);
+    if (selectedReportId) {
+      next = next.filter((a) => a.creditReportId === selectedReportId);
+    }
+    return next;
+  }, [rawAccounts, filterBureau, selectedReportId]);
+
+  const openAccounts = accounts.filter((a) => a.openClosed === "Open");
+  const closedAccounts = accounts.filter((a) => a.openClosed === "Closed");
 
   const openByCategory = useMemo(() => groupByCategory(openAccounts), [openAccounts]);
   const closedByCategory = useMemo(() => groupByCategory(closedAccounts), [closedAccounts]);
