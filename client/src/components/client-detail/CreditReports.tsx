@@ -195,6 +195,7 @@ export default function ClientDetailCreditReports({ clientId, clientBusinessId }
   const [showAccountDialog, setShowAccountDialog] = useState(false);
   const [showInquiryDialog, setShowInquiryDialog] = useState(false);
   const [showBulkPasteDialog, setShowBulkPasteDialog] = useState(false);
+  const [showBulkReportDialog, setShowBulkReportDialog] = useState(false);
   const [editingReportId, setEditingReportId] = useState<number | null>(null);
   const [editingAccountId, setEditingAccountId] = useState<number | null>(null);
   const [editingInquiryId, setEditingInquiryId] = useState<number | null>(null);
@@ -204,6 +205,7 @@ export default function ClientDetailCreditReports({ clientId, clientBusinessId }
   const [expandedSummary, setExpandedSummary] = useState(true);
   const [expandedAccounts, setExpandedAccounts] = useState(true);
   const [bulkPasteText, setBulkPasteText] = useState("");
+  const [bulkReportText, setBulkReportText] = useState("");
   const [reportForm, setReportForm] = useState({ ...emptyReport });
   const [accountForm, setAccountForm] = useState({ ...emptyAccount, clientId: clientBusinessId || "" });
   const [inquiryForm, setInquiryForm] = useState({ ...emptyInquiry });
@@ -272,24 +274,190 @@ export default function ClientDetailCreditReports({ clientId, clientBusinessId }
   });
 
 
-  const parseBulkRows = (raw: string) => {
-  const lines = raw.trim().split(/\r?\n/).filter(Boolean);
-    const rows = lines.map((line) => line.split(/\t|,/).map((v) => v.trim()));
-    const firstRow = rows[0].map((v) => v.toLowerCase());
-    const hasHeader = firstRow.some((v) => ["account", "status", "balance", "limit", "bureau"].some((k) => v.includes(k)));
+  const normalizeHeader = (value: string) => value.toLowerCase().replace(/[^a-z0-9]+/g, "");
+
+  const splitBulkLine = (line: string) => {
+    if (line.includes("	")) {
+      return line.split("	").map((v) => v.trim());
+    }
+    return line.split(",").map((v) => v.trim());
+  };
+
+  const reportHeaderAliases: Record<string, keyof typeof emptyReport> = {
+    bureau: "bureau",
+    reportdate: "reportDate",
+    date: "reportDate",
+    ficoscore: "ficoScore",
+    score: "ficoScore",
+    ficoscoremodel: "ficoScoreModel",
+    scoremodel: "ficoScoreModel",
+    evaluation: "evaluation",
+    openaccounts: "openAccounts",
+    selfreportedaccounts: "selfReportedAccounts",
+    closedaccounts: "closedAccounts",
+    collectionscount: "collectionsCount",
+    averageaccountage: "averageAccountAge",
+    oldestaccount: "oldestAccount",
+    creditusagepercent: "creditUsagePercent",
+    creditused: "creditUsed",
+    creditlimit: "creditLimit",
+    creditusagepercentnoau: "creditUsagePercentNoAU",
+    creditusednoau: "creditUsedNoAU",
+    creditlimitnoau: "creditLimitNoAU",
+    creditcarddebt: "creditCardDebt",
+    selfreportedbalance: "selfReportedBalance",
+    loandebt: "loanDebt",
+    collectionsdebt: "collectionsDebt",
+    totaldebt: "totalDebt",
+    reportpersonname: "reportPersonName",
+    personname: "reportPersonName",
+    reportalsoknownas: "reportAlsoKnownAs",
+    alsoknownas: "reportAlsoKnownAs",
+    reportyearofbirth: "reportYearOfBirth",
+    yearofbirth: "reportYearOfBirth",
+    reportaddresses: "reportAddresses",
+    addresses: "reportAddresses",
+    reportemployers: "reportEmployers",
+    employers: "reportEmployers",
+  };
+
+  const accountHeaderAliases: Record<string, string> = {
+    bureau: "bureau",
+    reportdate: "reportDate",
+    accountname: "accountName",
+    openclosed: "openClosed",
+    accounttype: "accountType",
+    status: "status",
+    balance: "balance",
+    creditlimit: "creditLimit",
+    creditusage: "creditUsage",
+    dateopened: "dateOpened",
+    monthlypayment: "monthlyPayment",
+    terms: "terms",
+    category: "creditAccountCategory",
+    creditaccountcategory: "creditAccountCategory",
+    responsibility: "responsibility",
+    accountnumber: "accountNumber",
+    statusupdated: "statusUpdated",
+    balanceupdated: "balanceUpdated",
+    originalbalance: "originalBalance",
+    paidoff: "paidOff",
+    lastpaymentdate: "lastPaymentDate",
+    dispute: "dispute",
+  };
+
+  const parseBulkReportRows = (raw: string) => {
+    const lines = raw.trim().split(/\r?\n/).filter(Boolean);
+    if (lines.length === 0) return [];
+    const rows = lines.map(splitBulkLine);
+    const headerMap = rows[0].map((v) => reportHeaderAliases[normalizeHeader(v)] || "");
+    const hasHeader = headerMap.some(Boolean);
     const dataRows = hasHeader ? rows.slice(1) : rows;
-    return dataRows.map((cols) => ({
-      accountName: cols[0] || "",
-      openClosed: cols[1] || "Open",
-      accountType: cols[2] || "",
-      status: cols[3] || "",
-      balance: cols[4] || "",
-      creditLimit: cols[5] || "",
-      creditUsage: cols[6] || "",
-      dateOpened: cols[7] || "",
-      monthlyPayment: cols[8] || "",
-      terms: cols[9] || "",
-    })).filter((row) => row.accountName);
+    const fixedOrder: (keyof typeof emptyReport)[] = [
+      "bureau", "reportDate", "ficoScore", "ficoScoreModel", "evaluation", "openAccounts", "selfReportedAccounts",
+      "closedAccounts", "collectionsCount", "averageAccountAge", "oldestAccount", "creditUsagePercent", "creditUsed",
+      "creditLimit", "creditUsagePercentNoAU", "creditUsedNoAU", "creditLimitNoAU", "creditCardDebt", "selfReportedBalance",
+      "loanDebt", "collectionsDebt", "totalDebt", "reportPersonName", "reportAlsoKnownAs", "reportYearOfBirth", "reportAddresses", "reportEmployers"
+    ];
+    return dataRows.map((cols) => {
+      const row: Record<string, string> = {};
+      cols.forEach((value, idx) => {
+        const key = hasHeader ? headerMap[idx] : fixedOrder[idx];
+        if (key) row[key] = value;
+      });
+      return row;
+    }).filter((row) => row.bureau || row.reportDate || row.ficoScore);
+  };
+
+  const parseBulkRows = (raw: string) => {
+    const lines = raw.trim().split(/\r?\n/).filter(Boolean);
+    if (lines.length === 0) return [];
+    const rows = lines.map(splitBulkLine);
+    const headerMap = rows[0].map((v) => accountHeaderAliases[normalizeHeader(v)] || "");
+    const hasHeader = headerMap.some(Boolean);
+    const dataRows = hasHeader ? rows.slice(1) : rows;
+    const fixedOrder = ["accountName", "openClosed", "accountType", "status", "balance", "creditLimit", "creditUsage", "dateOpened", "monthlyPayment", "terms"];
+    return dataRows.map((cols) => {
+      const row: Record<string, string> = {};
+      cols.forEach((value, idx) => {
+        const key = hasHeader ? headerMap[idx] : fixedOrder[idx];
+        if (key) row[key] = value;
+      });
+      return {
+        bureau: row.bureau || "",
+        reportDate: row.reportDate || "",
+        accountName: row.accountName || "",
+        openClosed: row.openClosed || "Open",
+        accountType: row.accountType || "",
+        status: row.status || "",
+        balance: row.balance || "",
+        creditLimit: row.creditLimit || "",
+        creditUsage: row.creditUsage || "",
+        dateOpened: row.dateOpened || "",
+        monthlyPayment: row.monthlyPayment || "",
+        terms: row.terms || "",
+        creditAccountCategory: row.creditAccountCategory || "Others",
+        responsibility: row.responsibility || "Individual",
+        accountNumber: row.accountNumber || "",
+        statusUpdated: row.statusUpdated || "",
+        balanceUpdated: row.balanceUpdated || "",
+        originalBalance: row.originalBalance || "",
+        paidOff: row.paidOff || "",
+        lastPaymentDate: row.lastPaymentDate || "",
+        dispute: row.dispute || "",
+      };
+    }).filter((row) => row.accountName);
+  };
+
+  const handleBulkReportImport = async () => {
+    const rows = parseBulkReportRows(bulkReportText);
+    if (rows.length === 0) {
+      toast.error("Paste at least one bureau summary row.");
+      return;
+    }
+    for (const row of rows) {
+      const existing = reports?.find((report) =>
+        (row.bureau ? (report.bureau || "").toLowerCase() === row.bureau.toLowerCase() : true) &&
+        (row.reportDate ? (report.reportDate || "") === row.reportDate : true)
+      );
+      const payload = {
+        bureau: row.bureau || null,
+        reportDate: row.reportDate || null,
+        ficoScore: row.ficoScore ? parseInt(row.ficoScore) : null,
+        ficoScoreModel: row.ficoScoreModel || null,
+        evaluation: (row.evaluation as Evaluation) || null,
+        openAccounts: row.openAccounts ? parseInt(row.openAccounts) : null,
+        selfReportedAccounts: row.selfReportedAccounts ? parseInt(row.selfReportedAccounts) : null,
+        closedAccounts: row.closedAccounts ? parseInt(row.closedAccounts) : null,
+        collectionsCount: row.collectionsCount ? parseInt(row.collectionsCount) : null,
+        averageAccountAge: row.averageAccountAge || null,
+        oldestAccount: row.oldestAccount || null,
+        creditUsagePercent: row.creditUsagePercent || null,
+        creditUsed: row.creditUsed || null,
+        creditLimit: row.creditLimit || null,
+        creditUsagePercentNoAU: row.creditUsagePercentNoAU || null,
+        creditUsedNoAU: row.creditUsedNoAU || null,
+        creditLimitNoAU: row.creditLimitNoAU || null,
+        creditCardDebt: row.creditCardDebt || null,
+        selfReportedBalance: row.selfReportedBalance || null,
+        loanDebt: row.loanDebt || null,
+        collectionsDebt: row.collectionsDebt || null,
+        totalDebt: row.totalDebt || null,
+        reportPersonName: row.reportPersonName || null,
+        reportAlsoKnownAs: row.reportAlsoKnownAs || null,
+        reportYearOfBirth: row.reportYearOfBirth || null,
+        reportAddresses: row.reportAddresses || null,
+        reportEmployers: row.reportEmployers || null,
+      };
+      if (existing) {
+        await updateReportMutation.mutateAsync({ id: existing.id, ...payload });
+      } else {
+        await createReportMutation.mutateAsync({ clientProfileId: clientId, ...payload });
+      }
+    }
+    setBulkReportText("");
+    setShowBulkReportDialog(false);
+    toast.success(`Imported ${rows.length} bureau row${rows.length > 1 ? "s" : ""}`);
   };
 
   const handleBulkPasteImport = async () => {
@@ -304,11 +472,15 @@ export default function ClientDetailCreditReports({ clientId, clientBusinessId }
     }
     const selectedReport = reports?.find((r) => r.id === selectedReportId);
     for (const row of rows) {
+      const matchedReport = selectedReport || reports?.find((report) =>
+        (!!row.bureau ? (report.bureau || "").toLowerCase() === row.bureau.toLowerCase() : true) &&
+        (!!row.reportDate ? (report.reportDate || "") === row.reportDate : true)
+      );
       await addAccountMutation.mutateAsync({
         clientProfileId: clientId,
-        creditReportId: selectedReportId,
-        bureau: selectedReport?.bureau || filterBureau,
-        reportDate: selectedReport?.reportDate || null,
+        creditReportId: matchedReport?.id ?? selectedReportId,
+        bureau: matchedReport?.bureau || row.bureau || (filterBureau === "all" ? null : filterBureau),
+        reportDate: matchedReport?.reportDate || row.reportDate || null,
         accountName: row.accountName,
         openClosed: row.openClosed,
         accountType: row.accountType,
@@ -319,7 +491,15 @@ export default function ClientDetailCreditReports({ clientId, clientBusinessId }
         dateOpened: row.dateOpened || null,
         monthlyPayment: row.monthlyPayment || null,
         terms: row.terms || null,
-        creditAccountCategory: "Others",
+        creditAccountCategory: (row.creditAccountCategory as Category) || "Others",
+        responsibility: row.responsibility || null,
+        accountNumber: row.accountNumber || null,
+        statusUpdated: row.statusUpdated || null,
+        balanceUpdated: row.balanceUpdated || null,
+        originalBalance: row.originalBalance || null,
+        paidOff: row.paidOff || null,
+        lastPaymentDate: row.lastPaymentDate || null,
+        dispute: row.dispute || null,
       });
     }
     setBulkPasteText("");
@@ -346,12 +526,6 @@ export default function ClientDetailCreditReports({ clientId, clientBusinessId }
       reportYearOfBirth: r.reportYearOfBirth || "", reportAddresses: r.reportAddresses || "",
       reportEmployers: r.reportEmployers || "",
     });
-    setShowReportDialog(true);
-  };
-
-  const openNewReport = () => {
-    setEditingReportId(null);
-    setReportForm({ ...emptyReport, bureau: filterBureau === "all" ? "" : filterBureau });
     setShowReportDialog(true);
   };
 
@@ -599,15 +773,20 @@ export default function ClientDetailCreditReports({ clientId, clientBusinessId }
       {/* ── Credit Report Summary ── */}
       <Card>
         <CardHeader className="pb-3">
-          <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center justify-between gap-2 flex-wrap">
             <button className="flex items-center gap-2 text-left" onClick={() => setExpandedSummary(v => !v)}>
               <CreditCard className="w-5 h-5 text-primary" />
               <CardTitle className="text-base">Credit Report Summary</CardTitle>
               {expandedSummary ? <ChevronUp className="w-4 h-4 text-muted-foreground" /> : <ChevronDown className="w-4 h-4 text-muted-foreground" />}
             </button>
-            <Button onClick={openNewReport} size="sm" className="gap-1 h-8 shrink-0">
-              <Plus className="w-3.5 h-3.5" /> Add Report
-            </Button>
+            <div className="flex items-center gap-2">
+              <Button onClick={() => setShowBulkReportDialog(true)} size="sm" variant="outline" className="gap-1 h-8">
+                <ClipboardPaste className="w-3.5 h-3.5" /> Import Bureau Data
+              </Button>
+              <Button onClick={() => { setEditingReportId(null); setReportForm({ ...emptyReport }); setShowReportDialog(true); }} size="sm" className="gap-1 h-8">
+                <Plus className="w-3.5 h-3.5" /> Add Report
+              </Button>
+            </div>
           </div>
         </CardHeader>
         {expandedSummary && (
@@ -626,12 +805,10 @@ export default function ClientDetailCreditReports({ clientId, clientBusinessId }
                       </div>
                       <div className="flex items-center gap-2">
                         <span className="text-slate-600 text-xs italic">No report added yet</span>
-                        <Button
-                          type="button"
-                          size="sm"
-                          className="h-7 gap-1"
-                          onClick={(e) => { e.stopPropagation(); openNewReport(); }}
-                        >
+                        <Button size="sm" variant="outline" className="h-7 gap-1 bg-white/10 border-white/20 text-white hover:bg-white/20" onClick={() => setShowBulkReportDialog(true)}>
+                          <ClipboardPaste className="w-3 h-3" /> Import
+                        </Button>
+                        <Button size="sm" className="h-7 gap-1" onClick={() => { setEditingReportId(null); setReportForm({ ...emptyReport }); setShowReportDialog(true); }}>
                           <Plus className="w-3 h-3" /> Add Report
                         </Button>
                       </div>
@@ -912,7 +1089,7 @@ export default function ClientDetailCreditReports({ clientId, clientBusinessId }
                 </button>
               </div>
               <Button onClick={() => setShowBulkPasteDialog(true)} size="sm" variant="outline" className="gap-1 h-8">
-                <ClipboardPaste className="w-3.5 h-3.5" /> Paste Rows
+                <ClipboardPaste className="w-3.5 h-3.5" /> Import Account Data
               </Button>
               <Button onClick={openNewAccount} size="sm" className="gap-1 h-8">
                 <Plus className="w-3.5 h-3.5" /> Add Account
@@ -947,13 +1124,13 @@ export default function ClientDetailCreditReports({ clientId, clientBusinessId }
             <DialogTitle>Paste Credit Account Rows</DialogTitle>
           </DialogHeader>
           <div className="space-y-3 py-2">
-            <p className="text-sm text-muted-foreground">Select a bureau report first, then paste rows from Excel or CSV. Expected column order: Account Name, Open/Closed, Account Type, Status, Balance, Credit Limit, Credit Usage, Date Opened, Monthly Payment, Terms.</p>
+            <p className="text-sm text-muted-foreground">Paste rows from Excel or CSV. If you do not select a report first, include Bureau and Report Date columns so rows can be linked automatically. Supported columns include Bureau, Report Date, Account Name, Open/Closed, Account Type, Status, Balance, Credit Limit, Credit Usage, Date Opened, Monthly Payment, Terms, Category and more.</p>
             <Textarea
   rows={12}
   value={bulkPasteText}
   onChange={(e) => setBulkPasteText(e.target.value)}
-  placeholder={`Account Name	Open/Closed	Account Type	Status	Balance	Credit Limit	Credit Usage	Date Opened
-Bank of America	Open	Credit Card	Current	4019	5200	77%	2020-10-20`}
+  placeholder={`Bureau	Report Date	Account Name	Open/Closed	Account Type	Status	Balance	Credit Limit	Credit Usage	Date Opened	Monthly Payment	Terms	Category
+Experian	2026-02-26	Bank of America	Open	Credit Card	Current	4019	5200	77%	2020-10-20	40	Revolving	Cards`}
 />
           </div>
           <DialogFooter>
@@ -962,6 +1139,30 @@ Bank of America	Open	Credit Card	Current	4019	5200	77%	2020-10-20`}
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <Dialog open={showBulkReportDialog} onOpenChange={setShowBulkReportDialog}>
+        <DialogContent className="max-w-4xl">
+          <DialogHeader>
+            <DialogTitle>Import Credit Bureau Data</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3 py-2">
+            <p className="text-sm text-muted-foreground">Paste bureau summary rows from Excel or CSV. If bureau and report date match an existing report, that report will be updated; otherwise a new report will be created.</p>
+            <Textarea
+              rows={12}
+              value={bulkReportText}
+              onChange={(e) => setBulkReportText(e.target.value)}
+              placeholder={`Bureau	Report Date	FICO Score	FICO Score Model	Evaluation	Open Accounts	Closed Accounts	Collections Count	Credit Usage Percent	Credit Used	Credit Limit	Total Debt
+Experian	2026-02-26	806	FICO Score 8	Very Good	14	2	0	24%	12000	50000	453569`}
+            />
+            <p className="text-xs text-muted-foreground">You can also include optional columns like Self Reported Accounts, Average Account Age, Oldest Account, No AU metrics, Addresses, Employers, and personal information.</p>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowBulkReportDialog(false)}>Cancel</Button>
+            <Button onClick={handleBulkReportImport} disabled={createReportMutation.isPending || updateReportMutation.isPending}>Import Bureau Data</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
 
       {/* Report Dialog */}
       <Dialog open={showReportDialog} onOpenChange={setShowReportDialog}>
