@@ -185,6 +185,29 @@ export default function ClientDetailCreditReports({ clientId, clientBusinessId }
   const [selectedReportId, setSelectedReportId] = useState<number | null>(null);
   const [accountView, setAccountView] = useState<"Open" | "Closed">("Open");
 
+  const { data: reports, isLoading: reportsLoading } = trpc.admin.getCreditReports.useQuery({ clientId });
+  const { data: rawAccounts, isLoading: accountsLoading } = trpc.admin.getCreditAccounts.useQuery({ clientId });
+  const { data: inquiries = [] } = trpc.admin.getInquiries.useQuery(
+    { creditReportId: selectedReportId ?? 0 },
+    { enabled: !!selectedReportId }
+  );
+  const [showReportDialog, setShowReportDialog] = useState(false);
+  const [showAccountDialog, setShowAccountDialog] = useState(false);
+  const [showInquiryDialog, setShowInquiryDialog] = useState(false);
+  const [showBulkPasteDialog, setShowBulkPasteDialog] = useState(false);
+  const [editingReportId, setEditingReportId] = useState<number | null>(null);
+  const [editingAccountId, setEditingAccountId] = useState<number | null>(null);
+  const [editingInquiryId, setEditingInquiryId] = useState<number | null>(null);
+  const [confirmDeleteReportId, setConfirmDeleteReportId] = useState<number | null>(null);
+  const [confirmDeleteAccountId, setConfirmDeleteAccountId] = useState<number | null>(null);
+  const [confirmDeleteInquiryId, setConfirmDeleteInquiryId] = useState<number | null>(null);
+  const [expandedSummary, setExpandedSummary] = useState(true);
+  const [expandedAccounts, setExpandedAccounts] = useState(true);
+  const [bulkPasteText, setBulkPasteText] = useState("");
+  const [reportForm, setReportForm] = useState({ ...emptyReport });
+  const [accountForm, setAccountForm] = useState({ ...emptyAccount, clientId: clientBusinessId || "" });
+  const [inquiryForm, setInquiryForm] = useState({ ...emptyInquiry });
+
   const filteredReports = useMemo(() => {
     if (!reports) return [];
     return reports.filter((r) => filterBureau === "all" || r.bureau === filterBureau);
