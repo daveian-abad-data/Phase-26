@@ -349,6 +349,12 @@ export default function ClientDetailCreditReports({ clientId, clientBusinessId }
     setShowReportDialog(true);
   };
 
+  const openNewReport = () => {
+    setEditingReportId(null);
+    setReportForm({ ...emptyReport, bureau: filterBureau === "all" ? "" : filterBureau });
+    setShowReportDialog(true);
+  };
+
   const openNewAccount = () => {
     setEditingAccountId(null);
     setAccountForm({ ...emptyAccount, clientId: clientBusinessId || "", creditReportId: selectedReportId, openClosed: accountView });
@@ -593,12 +599,15 @@ export default function ClientDetailCreditReports({ clientId, clientBusinessId }
       {/* ── Credit Report Summary ── */}
       <Card>
         <CardHeader className="pb-3">
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between gap-2">
             <button className="flex items-center gap-2 text-left" onClick={() => setExpandedSummary(v => !v)}>
               <CreditCard className="w-5 h-5 text-primary" />
               <CardTitle className="text-base">Credit Report Summary</CardTitle>
               {expandedSummary ? <ChevronUp className="w-4 h-4 text-muted-foreground" /> : <ChevronDown className="w-4 h-4 text-muted-foreground" />}
             </button>
+            <Button onClick={openNewReport} size="sm" className="gap-1 h-8 shrink-0">
+              <Plus className="w-3.5 h-3.5" /> Add Report
+            </Button>
           </div>
         </CardHeader>
         {expandedSummary && (
@@ -615,7 +624,17 @@ export default function ClientDetailCreditReports({ clientId, clientBusinessId }
                         <span className="text-slate-500 text-xl font-bold tracking-wide">Credit Bureau</span>
                         <span className="text-slate-600 text-xs">No Date</span>
                       </div>
-                      <span className="text-slate-600 text-xs italic">No report added yet</span>
+                      <div className="flex items-center gap-2">
+                        <span className="text-slate-600 text-xs italic">No report added yet</span>
+                        <Button
+                          type="button"
+                          size="sm"
+                          className="h-7 gap-1"
+                          onClick={(e) => { e.stopPropagation(); openNewReport(); }}
+                        >
+                          <Plus className="w-3 h-3" /> Add Report
+                        </Button>
+                      </div>
                     </div>
                     <div className="flex items-center justify-center gap-10 px-5 py-5">
                       <div className="flex flex-col items-center gap-1">
