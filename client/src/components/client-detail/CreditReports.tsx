@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -10,7 +10,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
-import { Loader2, Trash2, Edit2, CreditCard, ChevronDown, ChevronUp, Filter, Plus, ClipboardPaste } from "lucide-react";
+import { Loader2, Trash2, Edit2, CreditCard, ChevronDown, ChevronUp, Filter, Plus, ClipboardPaste, Download } from "lucide-react";
 import { toast } from "sonner";
 
 interface Props { clientId: number; clientBusinessId?: string | null; }
@@ -179,9 +179,44 @@ const groupByCategory = (accounts: any[]) => {
     Others: accounts.filter((a) => !a.creditAccountCategory || a.creditAccountCategory === "Others"),
   };
 };
+
+const csvEscape = (value: unknown) => {
+  const str = value == null ? "" : String(value);
+  if (/[",\n]/.test(str)) {
+    return `"${str.replace(/"/g, '""')}"`;
+  }
+  return str;
+};
+
+const downloadCsv = (filename: string, headers: string[], rows: (string | number | null | undefined)[][]) => {
+  const csv = [headers.join(","), ...rows.map((row) => row.map(csvEscape).join(","))].join("\n");
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.setAttribute("download", filename);
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+};
+
+const bureauTemplateHeaders = [
+  "Bureau", "Report Date", "FICO Score", "FICO Score Model", "Evaluation", "Open Accounts", "Self Reported Accounts",
+  "Closed Accounts", "Collections Count", "Average Account Age", "Oldest Account", "Credit Usage Percent", "Credit Used",
+  "Credit Limit", "Credit Usage Percent No AU", "Credit Used No AU", "Credit Limit No AU", "Credit Card Debt",
+  "Self Reported Balance", "Loan Debt", "Collections Debt", "Total Debt"
+];
+
+const accountTemplateHeaders = [
+  "Bureau", "Report Date", "Account Name", "Open/Closed", "Account Type", "Status", "Balance", "Credit Limit",
+  "Credit Usage", "Date Opened", "Monthly Payment", "Terms", "Category", "Responsibility", "Account Number",
+  "Status Updated", "Balance Updated", "Original Balance", "Paid Off", "Last Payment Date", "Dispute"
+];
+
 export default function ClientDetailCreditReports({ clientId, clientBusinessId }: Props) {
   const utils = trpc.useUtils();
-  const [filterBureau, setFilterBureau] = useState<string>("all");
+  const [filterBureau, setFilterBureau] = useState<string>("Experian");
   const [selectedReportId, setSelectedReportId] = useState<number | null>(null);
   const [accountView, setAccountView] = useState<"Open" | "Closed">("Open");
 
@@ -212,7 +247,7 @@ export default function ClientDetailCreditReports({ clientId, clientBusinessId }
 
   const filteredReports = useMemo(() => {
     if (!reports) return [];
-    return reports.filter((r) => filterBureau === "all" || r.bureau === filterBureau);
+    return reports.filter((r) => !filterBureau || r.bureau === filterBureau);
   }, [reports, filterBureau]);
 
   const bureauOptions = useMemo(() => {
@@ -220,9 +255,17 @@ export default function ClientDetailCreditReports({ clientId, clientBusinessId }
     return Array.from(new Set(reports.map((r) => r.bureau).filter(Boolean))) as string[];
   }, [reports]);
 
+  useEffect(() => {
+    if (bureauOptions.length === 0) return;
+    if (!bureauOptions.includes(filterBureau)) {
+      setFilterBureau(bureauOptions[0]);
+      setSelectedReportId(null);
+    }
+  }, [bureauOptions, filterBureau]);
+
   const accounts = useMemo(() => {
     const list = rawAccounts ?? [];
-    let next = list.filter((a) => filterBureau === "all" || a.bureau === filterBureau);
+    let next = list.filter((a) => !filterBureau || a.bureau === filterBureau);
     if (selectedReportId) {
       next = next.filter((a) => a.creditReportId === selectedReportId);
     }
@@ -479,7 +522,7 @@ export default function ClientDetailCreditReports({ clientId, clientBusinessId }
       await addAccountMutation.mutateAsync({
         clientProfileId: clientId,
         creditReportId: matchedReport?.id ?? selectedReportId,
-        bureau: matchedReport?.bureau || row.bureau || (filterBureau === "all" ? null : filterBureau),
+        bureau: matchedReport?.bureau || row.bureau || filterBureau || null,
         reportDate: matchedReport?.reportDate || row.reportDate || null,
         accountName: row.accountName,
         openClosed: row.openClosed,
@@ -505,6 +548,38 @@ export default function ClientDetailCreditReports({ clientId, clientBusinessId }
     setBulkPasteText("");
     setShowBulkPasteDialog(false);
     toast.success(`Imported ${rows.length} account row${rows.length > 1 ? "s" : ""}`);
+  };
+
+  const exportBureauData = () => {
+    const rows = (filteredReports.length > 0 ? filteredReports : (reports ?? [])).map((report) => [
+      report.bureau, report.reportDate, report.ficoScore, report.ficoScoreModel, report.evaluation, report.openAccounts,
+      report.selfReportedAccounts, report.closedAccounts, report.collectionsCount, report.averageAccountAge, report.oldestAccount,
+      report.creditUsagePercent, report.creditUsed, report.creditLimit, report.creditUsagePercentNoAU, report.creditUsedNoAU,
+      report.creditLimitNoAU, report.creditCardDebt, report.selfReportedBalance, report.loanDebt, report.collectionsDebt, report.totalDebt,
+    ]);
+    downloadCsv(`credit-bureau-data-${filterBureau || 'all'}.csv`, bureauTemplateHeaders, rows);
+  };
+
+  const exportAccountData = () => {
+    const rows = accounts.map((account) => [
+      account.bureau, account.reportDate, account.accountName, account.openClosed, account.accountType, account.status,
+      account.balance, account.creditLimit, account.creditUsage, account.dateOpened, account.monthlyPayment, account.terms,
+      account.creditAccountCategory, account.responsibility, account.accountNumber, account.statusUpdated, account.balanceUpdated,
+      account.originalBalance, account.paidOff, account.lastPaymentDate, account.dispute,
+    ]);
+    downloadCsv(`credit-account-data-${filterBureau || 'bureau'}.csv`, accountTemplateHeaders, rows);
+  };
+
+  const downloadBureauTemplate = () => {
+    downloadCsv('credit-bureau-template.csv', bureauTemplateHeaders, [[
+      'Experian', '2026-02-26', '806', 'FICO Score 8', 'Very Good', '14', '2', '12', '0', '8 years', '12 years', '12%', '12000', '50000', '', '', '', '453569', '0', '0', '0', '453569'
+    ]]);
+  };
+
+  const downloadAccountTemplate = () => {
+    downloadCsv('credit-account-template.csv', accountTemplateHeaders, [[
+      filterBureau || 'Experian', '2026-02-26', 'Bank of America', 'Open', 'Credit Card', 'Current', '4019', '5200', '77%', '2020-10-20', '125', 'REV', 'Cards', 'Individual', '', '', '', '', '', '', ''
+    ]]);
   };
 
   const openEditReport = (r: any) => {
@@ -762,8 +837,7 @@ export default function ClientDetailCreditReports({ clientId, clientBusinessId }
             <Label className="text-xs text-muted-foreground whitespace-nowrap">Bureaus</Label>
           </div>
           <div className="flex flex-wrap gap-2">
-            <Button size="sm" variant={filterBureau === "all" ? "default" : "outline"} onClick={() => { setFilterBureau("all"); setSelectedReportId(null); }}>All</Button>
-            {["Experian", "Transunion", "Equifax"].map((bureau) => (
+            {(["Experian", "Transunion", "Equifax"].filter((bureau) => bureauOptions.length === 0 || bureauOptions.includes(bureau))).map((bureau) => (
               <Button key={bureau} size="sm" variant={filterBureau === bureau ? "default" : "outline"} onClick={() => { setFilterBureau(bureau); setSelectedReportId(null); }}>{bureau}</Button>
             ))}
           </div>
@@ -779,7 +853,13 @@ export default function ClientDetailCreditReports({ clientId, clientBusinessId }
               <CardTitle className="text-base">Credit Report Summary</CardTitle>
               {expandedSummary ? <ChevronUp className="w-4 h-4 text-muted-foreground" /> : <ChevronDown className="w-4 h-4 text-muted-foreground" />}
             </button>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap justify-end">
+              <Button onClick={downloadBureauTemplate} size="sm" variant="outline" className="gap-1 h-8">
+                <Download className="w-3.5 h-3.5" /> Bureau Template
+              </Button>
+              <Button onClick={exportBureauData} size="sm" variant="outline" className="gap-1 h-8">
+                <Download className="w-3.5 h-3.5" /> Export Bureau Data
+              </Button>
               <Button onClick={() => setShowBulkReportDialog(true)} size="sm" variant="outline" className="gap-1 h-8">
                 <ClipboardPaste className="w-3.5 h-3.5" /> Import Bureau Data
               </Button>
@@ -1073,7 +1153,7 @@ export default function ClientDetailCreditReports({ clientId, clientBusinessId }
               {selectedReportId && <Badge variant="outline" className="text-xs text-primary border-primary">Filtered by report</Badge>}
               {expandedAccounts ? <ChevronUp className="w-4 h-4 text-muted-foreground" /> : <ChevronDown className="w-4 h-4 text-muted-foreground" />}
             </button>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap justify-end">
               <div className="flex rounded-lg overflow-hidden border text-xs font-medium">
                 <button
                   className={`px-4 py-1.5 transition-colors ${accountView === "Open" ? "bg-[#D6EED7] text-black font-bold" : "bg-white text-muted-foreground hover:bg-muted/40"}`}
@@ -1088,6 +1168,12 @@ export default function ClientDetailCreditReports({ clientId, clientBusinessId }
                   Closed ({closedAccounts.length})
                 </button>
               </div>
+              <Button onClick={downloadAccountTemplate} size="sm" variant="outline" className="gap-1 h-8">
+                <Download className="w-3.5 h-3.5" /> Account Template
+              </Button>
+              <Button onClick={exportAccountData} size="sm" variant="outline" className="gap-1 h-8">
+                <Download className="w-3.5 h-3.5" /> Export Account Data
+              </Button>
               <Button onClick={() => setShowBulkPasteDialog(true)} size="sm" variant="outline" className="gap-1 h-8">
                 <ClipboardPaste className="w-3.5 h-3.5" /> Import Account Data
               </Button>
@@ -1121,21 +1207,26 @@ export default function ClientDetailCreditReports({ clientId, clientBusinessId }
       <Dialog open={showBulkPasteDialog} onOpenChange={setShowBulkPasteDialog}>
         <DialogContent className="max-w-3xl">
           <DialogHeader>
-            <DialogTitle>Paste Credit Account Rows</DialogTitle>
+            <DialogTitle>Import Credit Account Data</DialogTitle>
           </DialogHeader>
           <div className="space-y-3 py-2">
-            <p className="text-sm text-muted-foreground">Paste rows from Excel or CSV. If you do not select a report first, include Bureau and Report Date columns so rows can be linked automatically. Supported columns include Bureau, Report Date, Account Name, Open/Closed, Account Type, Status, Balance, Credit Limit, Credit Usage, Date Opened, Monthly Payment, Terms, Category and more.</p>
+            <div className="flex gap-2 flex-wrap">
+              <Button type="button" variant="outline" size="sm" className="gap-1" onClick={downloadAccountTemplate}><Download className="w-3.5 h-3.5" /> Account Template</Button>
+              <Button type="button" variant="outline" size="sm" className="gap-1" onClick={exportAccountData}><Download className="w-3.5 h-3.5" /> Export Account Data</Button>
+            </div>
+            <p className="text-sm text-muted-foreground">Paste account rows from Excel or CSV. Use Export Account Data or Account Template to get the exact format. If you include Bureau + Report Date, the importer will match the right report automatically; otherwise it uses the currently selected report.</p>
             <Textarea
-  rows={12}
-  value={bulkPasteText}
-  onChange={(e) => setBulkPasteText(e.target.value)}
-  placeholder={`Bureau	Report Date	Account Name	Open/Closed	Account Type	Status	Balance	Credit Limit	Credit Usage	Date Opened	Monthly Payment	Terms	Category
-Experian	2026-02-26	Bank of America	Open	Credit Card	Current	4019	5200	77%	2020-10-20	40	Revolving	Cards`}
-/>
+              rows={12}
+              value={bulkPasteText}
+              onChange={(e) => setBulkPasteText(e.target.value)}
+              placeholder={`Paste account rows here.
+
+Tip: click Account Template or Export Account Data for the exact CSV format.`}
+            />
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowBulkPasteDialog(false)}>Cancel</Button>
-            <Button onClick={handleBulkPasteImport} disabled={addAccountMutation.isPending}>Import Rows</Button>
+            <Button onClick={handleBulkPasteImport} disabled={addAccountMutation.isPending}>Import Account Data</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -1146,15 +1237,20 @@ Experian	2026-02-26	Bank of America	Open	Credit Card	Current	4019	5200	77%	2020-
             <DialogTitle>Import Credit Bureau Data</DialogTitle>
           </DialogHeader>
           <div className="space-y-3 py-2">
-            <p className="text-sm text-muted-foreground">Paste bureau summary rows from Excel or CSV. If bureau and report date match an existing report, that report will be updated; otherwise a new report will be created.</p>
+            <div className="flex gap-2 flex-wrap">
+              <Button type="button" variant="outline" size="sm" className="gap-1" onClick={downloadBureauTemplate}><Download className="w-3.5 h-3.5" /> Bureau Template</Button>
+              <Button type="button" variant="outline" size="sm" className="gap-1" onClick={exportBureauData}><Download className="w-3.5 h-3.5" /> Export Bureau Data</Button>
+            </div>
+            <p className="text-sm text-muted-foreground">Paste bureau summary rows from Excel or CSV. Use Export Bureau Data or Bureau Template to get the exact column format. If Bureau + Report Date match an existing report, that report will be updated; otherwise a new report will be created.</p>
             <Textarea
               rows={12}
               value={bulkReportText}
               onChange={(e) => setBulkReportText(e.target.value)}
-              placeholder={`Bureau	Report Date	FICO Score	FICO Score Model	Evaluation	Open Accounts	Closed Accounts	Collections Count	Credit Usage Percent	Credit Used	Credit Limit	Total Debt
-Experian	2026-02-26	806	FICO Score 8	Very Good	14	2	0	24%	12000	50000	453569`}
+              placeholder={`Paste bureau rows here.
+
+Tip: click Bureau Template or Export Bureau Data for the exact CSV format.`}
             />
-            <p className="text-xs text-muted-foreground">You can also include optional columns like Self Reported Accounts, Average Account Age, Oldest Account, No AU metrics, Addresses, Employers, and personal information.</p>
+            <p className="text-xs text-muted-foreground">Recommended: download Bureau Template first, fill it in Excel, then paste or import it back here. Optional columns such as Self Reported Accounts, Age metrics, No-AU metrics, Addresses, and Employers are also supported.</p>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowBulkReportDialog(false)}>Cancel</Button>
@@ -1162,7 +1258,6 @@ Experian	2026-02-26	806	FICO Score 8	Very Good	14	2	0	24%	12000	50000	453569`}
           </DialogFooter>
         </DialogContent>
       </Dialog>
-
 
       {/* Report Dialog */}
       <Dialog open={showReportDialog} onOpenChange={setShowReportDialog}>
