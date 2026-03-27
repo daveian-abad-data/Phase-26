@@ -1,25 +1,342 @@
-import { useMemo, useState } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
-import { Loader2, ClipboardPaste, Download } from "lucide-react";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
+import { Loader2, Trash2, Edit2, CreditCard, ChevronDown, ChevronUp, Plus, ClipboardPaste, Download } from "lucide-react";
 import { toast } from "sonner";
 
-interface Props {
-  clientId: number;
-  clientBusinessId?: string | null;
+interface Props { clientId: number; clientBusinessId?: string | null; }
+
+const CATEGORIES = ["Cards", "Car", "House", "Secured Loan", "Unsecured Loan", "Others"] as const;
+type Category = typeof CATEGORIES[number];
+
+const CATEGORY_COLORS: Record<Category, { header: string; row: string }> = {
+  "Cards":          { header: "bg-[#6B8DD6] text-white",   row: "bg-[#EEF2FB]" },
+  "Car":            { header: "bg-[#D4A84B] text-white",   row: "bg-[#FDF6E3]" },
+  "House":          { header: "bg-[#5BA08A] text-white",   row: "bg-[#EDF7F4]" },
+  "Secured Loan":   { header: "bg-[#9B6BB5] text-white",   row: "bg-[#F5EEF9]" },
+  "Unsecured Loan": { header: "bg-[#C0634D] text-white",   row: "bg-[#FBF0EE]" },
+  "Others":         { header: "bg-[#7A8C99] text-white",   row: "bg-[#F0F3F5]" },
+};
+
+const OPEN_COLS: Record<Category, { label: string; key: string }[]> = {
+  "Cards": [
+    { label: "Date Opened", key: "dateOpened" }, { label: "Account Name", key: "accountName" },
+    { label: "Account Type", key: "accountType" }, { label: "Responsibility", key: "responsibility" },
+    { label: "Credit Limit", key: "creditLimit" }, { label: "Balance", key: "balance" },
+    { label: "Credit Usage", key: "creditUsage" }, { label: "Balance Updated", key: "balanceUpdated" },
+    { label: "Monthly Payment", key: "monthlyPayment" }, { label: "Status", key: "status" },
+  ],
+  "Car": [
+    { label: "Date Opened", key: "dateOpened" }, { label: "Account Name", key: "accountName" },
+    { label: "Account Type", key: "accountType" }, { label: "Responsibility", key: "responsibility" },
+    { label: "Original Balance", key: "originalBalance" }, { label: "Balance", key: "balance" },
+    { label: "Paid Off", key: "paidOff" }, { label: "Balance Updated", key: "balanceUpdated" },
+    { label: "Monthly Payment", key: "monthlyPayment" }, { label: "Status", key: "status" },
+  ],
+  "House": [
+    { label: "Date Opened", key: "dateOpened" }, { label: "Account Name", key: "accountName" },
+    { label: "Account Type", key: "accountType" }, { label: "Responsibility", key: "responsibility" },
+    { label: "Original Balance", key: "originalBalance" }, { label: "Balance", key: "balance" },
+    { label: "Paid Off", key: "paidOff" }, { label: "Balance Updated", key: "balanceUpdated" },
+    { label: "Monthly Payment", key: "monthlyPayment" }, { label: "Status", key: "status" },
+  ],
+  "Secured Loan": [
+    { label: "Date Opened", key: "dateOpened" }, { label: "Account Name", key: "accountName" },
+    { label: "Account Type", key: "accountType" }, { label: "Responsibility", key: "responsibility" },
+    { label: "Original Balance", key: "originalBalance" }, { label: "Balance", key: "balance" },
+    { label: "Paid Off", key: "paidOff" }, { label: "Balance Updated", key: "balanceUpdated" },
+    { label: "Monthly Payment", key: "monthlyPayment" }, { label: "Status", key: "status" },
+  ],
+  "Unsecured Loan": [
+    { label: "Date Opened", key: "dateOpened" }, { label: "Account Name", key: "accountName" },
+    { label: "Account Type", key: "accountType" }, { label: "Responsibility", key: "responsibility" },
+    { label: "Original Balance", key: "originalBalance" }, { label: "Balance", key: "balance" },
+    { label: "Paid Off", key: "paidOff" }, { label: "Balance Updated", key: "balanceUpdated" },
+    { label: "Monthly Payment", key: "monthlyPayment" }, { label: "Status", key: "status" },
+  ],
+  "Others": [
+    { label: "Date Opened", key: "dateOpened" }, { label: "Account Name", key: "accountName" },
+    { label: "Account Type", key: "accountType" }, { label: "Responsibility", key: "responsibility" },
+    { label: "Original Balance", key: "originalBalance" }, { label: "Balance", key: "balance" },
+    { label: "Paid Off", key: "paidOff" }, { label: "Balance Updated", key: "balanceUpdated" },
+    { label: "Monthly Payment", key: "monthlyPayment" }, { label: "Status", key: "status" },
+  ],
+};
+
+const CLOSED_COLS: Record<Category, { label: string; key: string }[]> = {
+  "Cards": [
+    { label: "Date Opened", key: "dateOpened" }, { label: "Account Name", key: "accountName" },
+    { label: "Account Type", key: "accountType" }, { label: "Responsibility", key: "responsibility" },
+    { label: "Credit Limit", key: "creditLimit" }, { label: "Last Payment Date", key: "lastPaymentDate" },
+  ],
+  "Car": [
+    { label: "Date Opened", key: "dateOpened" }, { label: "Account Name", key: "accountName" },
+    { label: "Account Type", key: "accountType" }, { label: "Responsibility", key: "responsibility" },
+    { label: "Original Balance", key: "originalBalance" }, { label: "Balance", key: "balance" },
+    { label: "Last Payment Date", key: "lastPaymentDate" },
+  ],
+  "House": [
+    { label: "Date Opened", key: "dateOpened" }, { label: "Account Name", key: "accountName" },
+    { label: "Account Type", key: "accountType" }, { label: "Responsibility", key: "responsibility" },
+    { label: "Original Balance", key: "originalBalance" }, { label: "Balance", key: "balance" },
+    { label: "Last Payment Date", key: "lastPaymentDate" },
+  ],
+  "Secured Loan": [
+    { label: "Date Opened", key: "dateOpened" }, { label: "Account Name", key: "accountName" },
+    { label: "Account Type", key: "accountType" }, { label: "Responsibility", key: "responsibility" },
+    { label: "Original Balance", key: "originalBalance" }, { label: "Balance", key: "balance" },
+    { label: "Last Payment Date", key: "lastPaymentDate" },
+  ],
+  "Unsecured Loan": [
+    { label: "Date Opened", key: "dateOpened" }, { label: "Account Name", key: "accountName" },
+    { label: "Account Type", key: "accountType" }, { label: "Responsibility", key: "responsibility" },
+    { label: "Original Balance", key: "originalBalance" }, { label: "Balance", key: "balance" },
+    { label: "Last Payment Date", key: "lastPaymentDate" },
+  ],
+  "Others": [
+    { label: "Date Opened", key: "dateOpened" }, { label: "Account Name", key: "accountName" },
+    { label: "Account Type", key: "accountType" }, { label: "Responsibility", key: "responsibility" },
+    { label: "Original Balance", key: "originalBalance" }, { label: "Balance", key: "balance" },
+    { label: "Last Payment Date", key: "lastPaymentDate" },
+  ],
+};
+
+const EVALUATION_CONFIG = {
+  "Poor":       { color: "#DC2626", bg: "#FEE2E2", label: "Poor" },
+  "Fair":       { color: "#EA580C", bg: "#FFEDD5", label: "Fair" },
+  "Good":       { color: "#CA8A04", bg: "#FEF9C3", label: "Good" },
+  "Very Good":  { color: "#16A34A", bg: "#DCFCE7", label: "Very Good" },
+  "Exceptional":{ color: "#15803D", bg: "#BBF7D0", label: "Exceptional" },
+} as const;
+type Evaluation = keyof typeof EVALUATION_CONFIG;
+
+// Pie chart SVG for credit utilization
+function PieChart({ percent, color = "#6B8DD6", size = 80, textColor = "#000000" }: { percent: number; color?: string; size?: number; textColor?: string }) {
+  const r = 30;
+  const cx = 40;
+  const cy = 40;
+  const circumference = 2 * Math.PI * r;
+  const p = Math.min(Math.max(percent, 0), 100);
+  const dash = (p / 100) * circumference;
+  const gap = circumference - dash;
+  return (
+    <svg width={size} height={size} viewBox="0 0 80 80">
+      <circle cx={cx} cy={cy} r={r} fill="none" stroke="#E5E7EB" strokeWidth="10" />
+      <circle
+        cx={cx} cy={cy} r={r} fill="none"
+        stroke={color} strokeWidth="10"
+        strokeDasharray={`${dash} ${gap}`}
+        strokeLinecap="round"
+        transform="rotate(-90 40 40)"
+      />
+      <text x={cx} y={cy + 1} textAnchor="middle" dominantBaseline="middle" fontSize="12" fontWeight="bold" fill={textColor}>
+        {p}%
+      </text>
+    </svg>
+  );
 }
 
-type Bureau = "Experian" | "Transunion" | "Equifax";
-const BUREAUS: Bureau[] = ["Experian", "Transunion", "Equifax"];
-const EVALUATIONS = ["Poor", "Fair", "Good", "Very Good", "Exceptional"] as const;
-type Evaluation = (typeof EVALUATIONS)[number];
-const CATEGORIES = ["Cards", "Car", "House", "Secured Loan", "Unsecured Loan", "Others"] as const;
-type Category = (typeof CATEGORIES)[number];
+
+function parseNumberString(value?: string) {
+  if (!value) return null;
+  const cleaned = value.replace(/[^0-9.-]/g, "").trim();
+  if (!cleaned) return null;
+  const num = parseInt(cleaned, 10);
+  return Number.isNaN(num) ? null : num;
+}
+
+function parseMoneyString(value?: string) {
+  if (!value) return null;
+  const cleaned = value.replace(/[$,]/g, "").trim();
+  return cleaned || null;
+}
+
+function normalizeLabel(label: string) {
+  return label.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+}
+
+function guessCategory(accountType?: string) {
+  const value = (accountType || "").toLowerCase();
+  if (!value) return "Others" as Category;
+  if (/(credit card|charge card|revolving|line of credit|credit line)/.test(value)) return "Cards";
+  if (/(auto|car|lease)/.test(value)) return "Car";
+  if (/(mortgage|home|house|heloc)/.test(value)) return "House";
+  if (/secured/.test(value)) return "Secured Loan";
+  if (/(installment|loan|student|personal|unsecured)/.test(value)) return "Unsecured Loan";
+  return "Others";
+}
+
+function downloadText(filename: string, content: string, mime = "text/csv;charset=utf-8") {
+  const blob = new Blob([content], { type: mime });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
+function exportReportContent(clientName: string, bureau: string, report: any | null, accounts: any[], inquiries: any[]) {
+  const lines: string[] = [];
+  const pushPair = (label: string, value: string | number | null | undefined) => {
+    lines.push(`${label},${JSON.stringify(value ?? "")}`);
+  };
+
+  pushPair("Client Name", clientName);
+  pushPair("Credit Bureau", bureau);
+  pushPair("FICO Score", report?.ficoScore ?? "");
+  pushPair("FICO Score Model", report?.ficoScoreModel ?? "");
+  pushPair("Assessment", report?.evaluation ?? "");
+  pushPair("Date File Downloaded", "");
+  pushPair("Date Credit Report Generated", report?.reportDate ?? "");
+  lines.push("Account summary,");
+  pushPair("Open accounts", report?.openAccounts ?? "");
+  pushPair("Self-reported accounts", report?.selfReportedAccounts ?? "");
+  pushPair("Accounts ever late", "");
+  pushPair("Closed accounts", report?.closedAccounts ?? "");
+  pushPair("Collections", report?.collectionsCount ?? "");
+  pushPair("Credit used", report?.creditUsed ?? "");
+  pushPair("Credit limit", report?.creditLimit ?? "");
+  lines.push("Debt Summary,");
+  pushPair("Credit card and credit line", report?.creditCardDebt ?? "");
+  pushPair("Self-reported account balance", report?.selfReportedBalance ?? "");
+  pushPair("Loan debt", report?.loanDebt ?? "");
+  pushPair("Collections debt", report?.collectionsDebt ?? "");
+  pushPair("Total debt", report?.totalDebt ?? "");
+  lines.push("");
+  pushPair("Average account age", report?.averageAccountAge ?? "");
+  pushPair("Oldest account", report?.oldestAccount ?? "");
+  lines.push("");
+  lines.push("Personal Information,");
+  pushPair("Name", report?.reportPersonName ?? "");
+  pushPair("Also Known As", report?.reportAlsoKnownAs ?? "");
+  pushPair("Year of Birth", report?.reportYearOfBirth ?? "");
+  pushPair("Addresses (can add more)", report?.reportAddresses ?? "");
+  pushPair("Employers (can add more)", report?.reportEmployers ?? "");
+  lines.push("");
+  lines.push("Inquiries,");
+  if (inquiries.length) {
+    inquiries.forEach((inq, idx) => pushPair(`Account ${idx + 1}`, inq.accountName || inq.note || ""));
+  } else {
+    pushPair("Account 1", "");
+  }
+  lines.push("(can add more),");
+  lines.push("");
+  lines.push([
+    "Account name",
+    "Account number",
+    "Original creditor -",
+    "Company sold -",
+    "Date opened",
+    "Open/closed",
+    "Status updated",
+    "Account type",
+    "Status",
+    "Balance",
+    "Credit Limit",
+    "Credit Usage",
+    "Balance updated",
+    "Original balance",
+    "Paid off",
+    "Monthly payment",
+    "Last Payment Date",
+    "Terms",
+    "Responsibility",
+    "Dispute",
+  ].join(","));
+  accounts.forEach((acc) => {
+    lines.push([
+      acc.accountName ?? "",
+      acc.accountNumber ?? "",
+      acc.originalCreditor ?? "",
+      acc.companySold ?? "",
+      acc.dateOpened ?? "",
+      acc.openClosed ?? "",
+      acc.statusUpdated ?? "",
+      acc.accountType ?? "",
+      acc.status ?? "",
+      acc.balance ?? "",
+      acc.creditLimit ?? "",
+      acc.creditUsage ?? "",
+      acc.balanceUpdated ?? "",
+      acc.originalBalance ?? "",
+      acc.paidOff ?? "",
+      acc.monthlyPayment ?? "",
+      acc.lastPaymentDate ?? "",
+      acc.terms ?? "",
+      acc.responsibility ?? "",
+      acc.dispute ?? "",
+    ].map((v) => JSON.stringify(v ?? "")).join(","));
+  });
+  return lines.join("\n");
+}
+
+function templateContent(bureau: string) {
+  return exportReportContent("CLIENT NAME HERE", bureau, {
+    reportDate: "2026-02-26",
+    ficoScore: "806",
+    ficoScoreModel: "FICO Score 8",
+    evaluation: "Very Good",
+    openAccounts: "14",
+    selfReportedAccounts: "2",
+    closedAccounts: "8",
+    collectionsCount: "0",
+    creditUsed: "12000",
+    creditLimit: "50000",
+    creditCardDebt: "8000",
+    selfReportedBalance: "0",
+    loanDebt: "5000",
+    collectionsDebt: "0",
+    totalDebt: "13000",
+    averageAccountAge: "6 years",
+    oldestAccount: "10 years",
+    reportPersonName: "Client Name",
+    reportAlsoKnownAs: "",
+    reportYearOfBirth: "1989",
+    reportAddresses: "123 Main St",
+    reportEmployers: "Employer Name",
+  }, [
+    {
+      accountName: "AMEX",
+      accountNumber: "3499929687",
+      originalCreditor: "",
+      companySold: "",
+      dateOpened: "3/25/2022",
+      openClosed: "Open",
+      statusUpdated: "3/1/2026",
+      accountType: "Credit card",
+      status: "Open/Never late.",
+      balance: "10432",
+      creditLimit: "",
+      creditUsage: "",
+      balanceUpdated: "3/22/2026",
+      originalBalance: "",
+      paidOff: "",
+      monthlyPayment: "0",
+      lastPaymentDate: "",
+      terms: "1 Month",
+      responsibility: "Authorized user",
+      dispute: "",
+    },
+  ], [{ accountName: "" }]);
+}
+
+function splitRow(line: string) {
+  return line.includes("\t")
+    ? line.split("\t").map((cell) => cell.trim())
+    : line.split(",").map((cell) => cell.trim().replace(/^"|"$/g, ""));
+}
 
 type SummaryImport = {
   reportDate?: string;
@@ -35,6 +352,9 @@ type SummaryImport = {
   creditUsagePercent?: string;
   creditUsed?: string;
   creditLimit?: string;
+  creditUsagePercentNoAU?: string;
+  creditUsedNoAU?: string;
+  creditLimitNoAU?: string;
   creditCardDebt?: string;
   selfReportedBalance?: string;
   loanDebt?: string;
@@ -76,198 +396,6 @@ type ImportedInquiry = {
   note?: string;
 };
 
-function parseNumberString(value?: string) {
-  if (!value) return null;
-  const cleaned = value.replace(/[^0-9.-]/g, "").trim();
-  if (!cleaned) return null;
-  const num = parseInt(cleaned, 10);
-  return Number.isNaN(num) ? null : num;
-}
-
-function parseMoneyString(value?: string) {
-  if (!value) return null;
-  const cleaned = value.replace(/[$,]/g, "").trim();
-  return cleaned || null;
-}
-
-function formatMoney(value: string | number | null | undefined) {
-  if (value === null || value === undefined || value === "") return "—";
-  const num = typeof value === "number" ? value : Number(String(value).replace(/[$,]/g, ""));
-  if (Number.isNaN(num)) return String(value);
-  return `$${num.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-}
-
-function formatPercent(value: string | null | undefined) {
-  if (!value) return "—";
-  return String(value).includes("%") ? String(value) : `${value}%`;
-}
-
-function normalizeLabel(label: string) {
-  return label.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
-}
-
-function guessCategory(accountType?: string) {
-  const value = (accountType || "").toLowerCase();
-  if (!value) return "Others" as Category;
-  if (/(credit card|charge card|revolving|line of credit|credit line)/.test(value)) return "Cards";
-  if (/(auto|car|lease)/.test(value)) return "Car";
-  if (/(mortgage|home|house|heloc)/.test(value)) return "House";
-  if (/secured/.test(value)) return "Secured Loan";
-  if (/(installment|loan|student|personal|unsecured)/.test(value)) return "Unsecured Loan";
-  return "Others";
-}
-
-function downloadText(filename: string, content: string, mime = "text/csv;charset=utf-8") {
-  const blob = new Blob([content], { type: mime });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  URL.revokeObjectURL(url);
-}
-
-function exportReportContent(clientName: string, bureau: Bureau, report: any | null, accounts: any[], inquiries: any[]) {
-  const lines: string[] = [];
-  const pushPair = (label: string, value: string | number | null | undefined) => {
-    lines.push(`${label},${JSON.stringify(value ?? "")}`);
-  };
-
-  pushPair("Client Name", clientName);
-  pushPair("Credit Bureau", bureau);
-  pushPair("FICO Score", report?.ficoScore ?? "");
-  pushPair("Assessment", report?.evaluation ?? "");
-  pushPair("Date Credit Report Generated", report?.reportDate ?? "");
-  lines.push("Account summary,");
-  pushPair("Open accounts", report?.openAccounts ?? "");
-  pushPair("Self-reported accounts", report?.selfReportedAccounts ?? "");
-  pushPair("Closed accounts", report?.closedAccounts ?? "");
-  pushPair("Collections", report?.collectionsCount ?? "");
-  pushPair("Credit used", report?.creditUsed ?? "");
-  pushPair("Credit limit", report?.creditLimit ?? "");
-  lines.push("Debt Summary,");
-  pushPair("Credit card and credit line", report?.creditCardDebt ?? "");
-  pushPair("Self-reported account balance", report?.selfReportedBalance ?? "");
-  pushPair("Loan debt", report?.loanDebt ?? "");
-  pushPair("Collections debt", report?.collectionsDebt ?? "");
-  pushPair("Total debt", report?.totalDebt ?? "");
-  pushPair("Average account age", report?.averageAccountAge ?? "");
-  pushPair("Oldest account", report?.oldestAccount ?? "");
-  lines.push("Personal Information,");
-  pushPair("Name", report?.reportPersonName ?? "");
-  pushPair("Also Known As", report?.reportAlsoKnownAs ?? "");
-  pushPair("Year of Birth", report?.reportYearOfBirth ?? "");
-  pushPair("Addresses", report?.reportAddresses ?? "");
-  pushPair("Employers", report?.reportEmployers ?? "");
-  if (inquiries.length) {
-    lines.push("Inquiries,");
-    inquiries.forEach((inq, idx) => pushPair(`Account ${idx + 1}`, inq.accountName || inq.note || ""));
-  }
-  lines.push("");
-  lines.push([
-    "Account name",
-    "Account number",
-    "Original creditor",
-    "Company sold",
-    "Date opened",
-    "Open/closed",
-    "Status updated",
-    "Account type",
-    "Status",
-    "Balance",
-    "Credit Limit",
-    "Credit Usage",
-    "Balance updated",
-    "Original balance",
-    "Paid off",
-    "Monthly payment",
-    "Last Payment Date",
-    "Terms",
-    "Responsibility",
-    "Dispute",
-  ].join(","));
-  accounts.forEach((acc) => {
-    lines.push([
-      acc.accountName ?? "",
-      acc.accountNumber ?? "",
-      "",
-      "",
-      acc.dateOpened ?? "",
-      acc.openClosed ?? "",
-      acc.statusUpdated ?? "",
-      acc.accountType ?? "",
-      acc.status ?? "",
-      acc.balance ?? "",
-      acc.creditLimit ?? "",
-      acc.creditUsage ?? "",
-      acc.balanceUpdated ?? "",
-      acc.originalBalance ?? "",
-      acc.paidOff ?? "",
-      acc.monthlyPayment ?? "",
-      acc.lastPaymentDate ?? "",
-      acc.terms ?? "",
-      acc.responsibility ?? "",
-      acc.dispute ?? "",
-    ].map((v) => JSON.stringify(v ?? "")).join(","));
-  });
-  return lines.join("\n");
-}
-
-function templateContent(bureau: Bureau) {
-  return exportReportContent("CLIENT NAME HERE", bureau, {
-    reportDate: "2026-02-26",
-    ficoScore: "806",
-    evaluation: "Very Good",
-    openAccounts: "14",
-    selfReportedAccounts: "2",
-    closedAccounts: "8",
-    collectionsCount: "0",
-    creditUsed: "12000",
-    creditLimit: "50000",
-    creditCardDebt: "8000",
-    selfReportedBalance: "0",
-    loanDebt: "5000",
-    collectionsDebt: "0",
-    totalDebt: "13000",
-    averageAccountAge: "6 years",
-    oldestAccount: "10 years",
-    reportPersonName: "Client Name",
-    reportAlsoKnownAs: "",
-    reportYearOfBirth: "1989",
-    reportAddresses: "123 Main St",
-    reportEmployers: "Employer Name",
-  }, [
-    {
-      accountName: "Bank of America",
-      accountNumber: "1234XXXXXXXX",
-      dateOpened: "2020-10-20",
-      openClosed: "Open",
-      statusUpdated: "2026-02-26",
-      accountType: "Credit card",
-      status: "Current",
-      balance: "4019",
-      creditLimit: "5200",
-      creditUsage: "77%",
-      balanceUpdated: "2026-02-26",
-      originalBalance: "",
-      paidOff: "",
-      monthlyPayment: "95",
-      lastPaymentDate: "",
-      terms: "Revolving",
-      responsibility: "Individual",
-      dispute: "",
-    },
-  ], []);
-}
-
-function splitRow(line: string) {
-  return line.includes("\t")
-    ? line.split("\t").map((cell) => cell.trim())
-    : line.split(",").map((cell) => cell.trim().replace(/^"|"$/g, ""));
-}
-
 function parseImportedReport(raw: string) {
   const lines = raw.split(/\r?\n/).map((line) => line.trimEnd());
   const summary: SummaryImport = {};
@@ -288,6 +416,9 @@ function parseImportedReport(raw: string) {
     "credit limit": "creditLimit",
     "credit usage percent": "creditUsagePercent",
     "credit usage": "creditUsagePercent",
+    "credit usage percent no au": "creditUsagePercentNoAU",
+    "credit used no au": "creditUsedNoAU",
+    "credit limit no au": "creditLimitNoAU",
     "credit card and credit line": "creditCardDebt",
     "self reported account balance": "selfReportedBalance",
     "loan debt": "loanDebt",
@@ -382,7 +513,31 @@ function parseImportedReport(raw: string) {
   return { summary, inquiries, accounts };
 }
 
-function groupByCategory(accounts: any[]) {
+const emptyReport = {
+  bureau: "", reportDate: "", ficoScore: "", ficoScoreModel: "",
+  evaluation: "" as Evaluation | "",
+  openAccounts: "", selfReportedAccounts: "", closedAccounts: "", collectionsCount: "",
+  averageAccountAge: "", oldestAccount: "",
+  creditUsagePercent: "", creditUsed: "", creditLimit: "",
+  creditUsagePercentNoAU: "", creditUsedNoAU: "", creditLimitNoAU: "",
+  creditCardDebt: "", selfReportedBalance: "", loanDebt: "", collectionsDebt: "", totalDebt: "",
+  reportPersonName: "", reportAlsoKnownAs: "", reportYearOfBirth: "", reportAddresses: "", reportEmployers: "",
+};
+
+const emptyAccount = {
+  creditReportId: null as number | null,
+  clientId: "", bureau: "", reportDate: "",
+  accountName: "", openClosed: "Open", responsibility: "Individual", accountNumber: "",
+  dateOpened: "", statusUpdated: "", accountType: "", status: "",
+  balance: "", creditLimit: "", creditUsage: "", balanceUpdated: "",
+  originalBalance: "", paidOff: "", monthlyPayment: "", lastPaymentDate: "",
+  terms: "", creditAccountCategory: "" as Category | "", dispute: "",
+};
+
+const emptyInquiry = {
+  accountName: "", inquiredOn: "", businessType: "", address: "", contactNumber: "", note: "",
+};
+const groupByCategory = (accounts: any[]) => {
   return {
     Cards: accounts.filter((a) => a.creditAccountCategory === "Cards"),
     Car: accounts.filter((a) => a.creditAccountCategory === "Car"),
@@ -390,54 +545,116 @@ function groupByCategory(accounts: any[]) {
     "Secured Loan": accounts.filter((a) => a.creditAccountCategory === "Secured Loan"),
     "Unsecured Loan": accounts.filter((a) => a.creditAccountCategory === "Unsecured Loan"),
     Others: accounts.filter((a) => !a.creditAccountCategory || a.creditAccountCategory === "Others"),
-  } as Record<Category, any[]>;
-}
-
-export default function ClientDetailCreditReports({ clientId }: Props) {
+  };
+};
+export default function ClientDetailCreditReports({ clientId, clientBusinessId }: Props) {
   const utils = trpc.useUtils();
-  const [bureau, setBureau] = useState<Bureau>("Experian");
+  const [filterBureau, setFilterBureau] = useState<"Experian" | "Transunion" | "Equifax">("Experian");
+  const [selectedReportId, setSelectedReportId] = useState<number | null>(null);
   const [accountView, setAccountView] = useState<"Open" | "Closed">("Open");
-  const [showImportDialog, setShowImportDialog] = useState(false);
-  const [importText, setImportText] = useState("");
 
   const { data: reports, isLoading: reportsLoading } = trpc.admin.getCreditReports.useQuery({ clientId });
-  const currentReport = useMemo(() => (reports || []).find((report: any) => (report.bureau || "") === bureau) ?? null, [reports, bureau]);
-  const duplicateCount = useMemo(() => (reports || []).filter((report: any) => (report.bureau || "") === bureau).length, [reports, bureau]);
+  const { data: rawAccounts, isLoading: accountsLoading } = trpc.admin.getCreditAccounts.useQuery({ clientId });
+  const [showImportDialog, setShowImportDialog] = useState(false);
+  const [importText, setImportText] = useState("");
+  const [showReportDialog, setShowReportDialog] = useState(false);
+  const [showAccountDialog, setShowAccountDialog] = useState(false);
+  const [showInquiryDialog, setShowInquiryDialog] = useState(false);
+  const [editingReportId, setEditingReportId] = useState<number | null>(null);
+  const [editingAccountId, setEditingAccountId] = useState<number | null>(null);
+  const [editingInquiryId, setEditingInquiryId] = useState<number | null>(null);
+  const [confirmDeleteReportId, setConfirmDeleteReportId] = useState<number | null>(null);
+  const [confirmDeleteAccountId, setConfirmDeleteAccountId] = useState<number | null>(null);
+  const [confirmDeleteInquiryId, setConfirmDeleteInquiryId] = useState<number | null>(null);
+  const [expandedSummary, setExpandedSummary] = useState(true);
+  const [expandedAccounts, setExpandedAccounts] = useState(true);
+  const [reportForm, setReportForm] = useState({ ...emptyReport });
+  const [accountForm, setAccountForm] = useState({ ...emptyAccount, clientId: clientBusinessId || "" });
+  const [inquiryForm, setInquiryForm] = useState({ ...emptyInquiry });
 
-  const { data: allAccounts, isLoading: accountsLoading } = trpc.admin.getCreditAccounts.useQuery({ clientId, creditReportId: null });
-  const currentAccounts = useMemo(() => {
-    if (!currentReport || !allAccounts) return [];
-    return allAccounts.filter((acc: any) => acc.creditReportId === currentReport.id);
-  }, [allAccounts, currentReport]);
+  const filteredReports = useMemo(() => {
+    const matches = (reports || []).filter((r) => r.bureau === filterBureau);
+    const sorted = [...matches].sort((a: any, b: any) => {
+      const da = new Date(a.reportDate || a.updatedAt || a.createdAt || 0).getTime();
+      const db = new Date(b.reportDate || b.updatedAt || b.createdAt || 0).getTime();
+      return db - da || (b.id || 0) - (a.id || 0);
+    });
+    return sorted.length ? [sorted[0]] : [];
+  }, [reports, filterBureau]);
 
-  const { data: inquiries = [] } = trpc.admin.getInquiries.useQuery(
-    { creditReportId: currentReport?.id ?? 0 },
-    { enabled: !!currentReport?.id },
-  );
+  const currentReport = filteredReports[0] ?? null;
+  const duplicateCount = useMemo(() => (reports || []).filter((r) => r.bureau === filterBureau).length, [reports, filterBureau]);
 
-  const createReportMutation = trpc.admin.createCreditReport.useMutation();
-  const updateReportMutation = trpc.admin.updateCreditReport.useMutation();
-  const addCreditAccountMutation = trpc.admin.addCreditAccount.useMutation();
-  const deleteCreditAccountMutation = trpc.admin.deleteCreditAccount.useMutation();
-  const createInquiryMutation = trpc.admin.createInquiry.useMutation();
-  const deleteInquiryMutation = trpc.admin.deleteInquiry.useMutation();
+  useEffect(() => {
+    setSelectedReportId(currentReport?.id ?? null);
+  }, [currentReport?.id]);
 
-  const openAccounts = useMemo(() => currentAccounts.filter((acc: any) => (acc.openClosed || "").toLowerCase() !== "closed"), [currentAccounts]);
-  const closedAccounts = useMemo(() => currentAccounts.filter((acc: any) => (acc.openClosed || "").toLowerCase() === "closed"), [currentAccounts]);
-  const byCategory = useMemo(() => groupByCategory(accountView === "Open" ? openAccounts : closedAccounts), [accountView, openAccounts, closedAccounts]);
+  const bureauOptions = ["Experian", "Transunion", "Equifax"] as const;
+
+  const accounts = useMemo(() => {
+    const list = rawAccounts ?? [];
+    if (!currentReport) return [];
+    return list.filter((a) => a.creditReportId === currentReport.id);
+  }, [rawAccounts, currentReport]);
+
+  const openAccounts = accounts.filter((a) => a.openClosed === "Open");
+  const closedAccounts = accounts.filter((a) => a.openClosed === "Closed");
+
+  const openByCategory = useMemo(() => groupByCategory(openAccounts), [openAccounts]);
+  const closedByCategory = useMemo(() => groupByCategory(closedAccounts), [closedAccounts]);
+
+  // Mutations
+  const createReportMutation = trpc.admin.createCreditReport.useMutation({
+    onSuccess: () => { utils.admin.getCreditReports.invalidate({ clientId }); setShowReportDialog(false); toast.success("Credit report added"); },
+    onError: (err) => toast.error(err.message),
+  });
+  const updateReportMutation = trpc.admin.updateCreditReport.useMutation({
+    onSuccess: () => { utils.admin.getCreditReports.invalidate({ clientId }); setShowReportDialog(false); toast.success("Report updated"); },
+    onError: (err) => toast.error(err.message),
+  });
+  const deleteReportMutation = trpc.admin.deleteCreditReport.useMutation({
+    onSuccess: () => { utils.admin.getCreditReports.invalidate({ clientId }); toast.success("Report deleted"); },
+    onError: (err) => toast.error(err.message),
+  });
+  const addAccountMutation = trpc.admin.addCreditAccount.useMutation({
+    onSuccess: () => { utils.admin.getCreditAccounts.invalidate({ clientId }); setShowAccountDialog(false); toast.success("Account added"); },
+    onError: (err) => toast.error(err.message),
+  });
+  const updateAccountMutation = trpc.admin.updateCreditAccount.useMutation({
+    onSuccess: () => { utils.admin.getCreditAccounts.invalidate({ clientId }); setShowAccountDialog(false); toast.success("Account updated"); },
+    onError: (err) => toast.error(err.message),
+  });
+  const deleteAccountMutation = trpc.admin.deleteCreditAccount.useMutation({
+    onSuccess: () => { utils.admin.getCreditAccounts.invalidate({ clientId }); toast.success("Account deleted"); },
+    onError: (err) => toast.error(err.message),
+  });
+  const createInquiryMutation = trpc.admin.createInquiry.useMutation({
+    onSuccess: () => { if (selectedReportId) utils.admin.getInquiries.invalidate({ creditReportId: selectedReportId }); setShowInquiryDialog(false); toast.success("Inquiry added"); },
+    onError: (err) => toast.error(err.message),
+  });
+  const updateInquiryMutation = trpc.admin.updateInquiry.useMutation({
+    onSuccess: () => { if (selectedReportId) utils.admin.getInquiries.invalidate({ creditReportId: selectedReportId }); setShowInquiryDialog(false); toast.success("Inquiry updated"); },
+    onError: (err) => toast.error(err.message),
+  });
+  const deleteInquiryMutation = trpc.admin.deleteInquiry.useMutation({
+    onSuccess: () => { if (selectedReportId) utils.admin.getInquiries.invalidate({ creditReportId: selectedReportId }); toast.success("Inquiry deleted"); },
+    onError: (err) => toast.error(err.message),
+  });
+
+
 
   const handleDownloadTemplate = () => {
-    downloadText(`${bureau.toLowerCase()}-credit-report-template.csv`, templateContent(bureau));
+    downloadText(`${filterBureau.toLowerCase()}-credit-report-template.csv`, templateContent(filterBureau));
   };
 
   const handleExport = () => {
-    downloadText(`${bureau.toLowerCase()}-credit-report-export.csv`, exportReportContent("Current Client", bureau, currentReport, currentAccounts, inquiries));
+    downloadText(`${filterBureau.toLowerCase()}-credit-report-export.csv`, exportReportContent("Current Client", filterBureau, currentReport, accounts, inquiries));
   };
 
   const handleImport = async () => {
     try {
       if (!importText.trim()) {
-        toast.error(`Paste the ${bureau} report data first.`);
+        toast.error(`Paste the ${filterBureau} report data first.`);
         return;
       }
       const parsed = parseImportedReport(importText);
@@ -448,11 +665,11 @@ export default function ClientDetailCreditReports({ clientId }: Props) {
 
       const reportPayload = {
         clientProfileId: clientId,
-        bureau,
+        bureau: filterBureau,
         reportDate: parsed.summary.reportDate || null,
         ficoScore: parseNumberString(parsed.summary.ficoScore),
         ficoScoreModel: parsed.summary.ficoScoreModel || null,
-        evaluation: (EVALUATIONS.includes((parsed.summary.evaluation || "") as Evaluation) ? parsed.summary.evaluation : null) as Evaluation | null,
+        evaluation: parsed.summary.evaluation || null,
         openAccounts: parseNumberString(parsed.summary.openAccounts),
         selfReportedAccounts: parseNumberString(parsed.summary.selfReportedAccounts),
         closedAccounts: parseNumberString(parsed.summary.closedAccounts),
@@ -462,9 +679,9 @@ export default function ClientDetailCreditReports({ clientId }: Props) {
         creditUsagePercent: parsed.summary.creditUsagePercent || null,
         creditUsed: parseMoneyString(parsed.summary.creditUsed),
         creditLimit: parseMoneyString(parsed.summary.creditLimit),
-        creditUsagePercentNoAU: null,
-        creditUsedNoAU: null,
-        creditLimitNoAU: null,
+        creditUsagePercentNoAU: parsed.summary.creditUsagePercentNoAU || null,
+        creditUsedNoAU: parseMoneyString(parsed.summary.creditUsedNoAU),
+        creditLimitNoAU: parseMoneyString(parsed.summary.creditLimitNoAU),
         creditCardDebt: parseMoneyString(parsed.summary.creditCardDebt),
         selfReportedBalance: parseMoneyString(parsed.summary.selfReportedBalance),
         loanDebt: parseMoneyString(parsed.summary.loanDebt),
@@ -483,23 +700,24 @@ export default function ClientDetailCreditReports({ clientId }: Props) {
       } else {
         await createReportMutation.mutateAsync(reportPayload);
         const refreshed = await utils.admin.getCreditReports.fetch({ clientId });
-        reportId = (refreshed || []).find((report: any) => (report.bureau || "") === bureau)?.id ?? null;
+        const matches = (refreshed || []).filter((r: any) => r.bureau === filterBureau).sort((a: any, b: any) => (b.id || 0) - (a.id || 0));
+        reportId = matches[0]?.id ?? null;
       }
 
       if (!reportId) throw new Error("Could not resolve the bureau report after import.");
 
-      for (const account of currentAccounts) {
-        await deleteCreditAccountMutation.mutateAsync({ id: account.id });
+      for (const account of accounts) {
+        await deleteAccountMutation.mutateAsync({ id: account.id });
       }
       for (const inquiry of inquiries) {
         await deleteInquiryMutation.mutateAsync({ id: inquiry.id });
       }
 
       for (const account of parsed.accounts) {
-        await addCreditAccountMutation.mutateAsync({
+        await addAccountMutation.mutateAsync({
           clientProfileId: clientId,
           creditReportId: reportId,
-          bureau,
+          bureau: filterBureau,
           reportDate: reportPayload.reportDate,
           accountName: account.accountName || null,
           openClosed: account.openClosed || null,
@@ -524,6 +742,7 @@ export default function ClientDetailCreditReports({ clientId }: Props) {
       }
 
       for (const inquiry of parsed.inquiries) {
+        if (!inquiry.accountName && !inquiry.note) continue;
         await createInquiryMutation.mutateAsync({
           creditReportId: reportId,
           clientProfileId: clientId,
@@ -538,193 +757,867 @@ export default function ClientDetailCreditReports({ clientId }: Props) {
 
       await Promise.all([
         utils.admin.getCreditReports.invalidate({ clientId }),
-        utils.admin.getCreditAccounts.invalidate({ clientId, creditReportId: null }),
+        utils.admin.getCreditAccounts.invalidate({ clientId }),
         utils.admin.getInquiries.invalidate({ creditReportId: reportId }),
       ]);
 
-      setShowImportDialog(false);
       setImportText("");
-      toast.success(`${bureau} report replaced successfully.`);
+      setShowImportDialog(false);
+      toast.success(`Updated ${filterBureau} report and replaced its accounts.`);
     } catch (error: any) {
-      toast.error(error?.message || `Failed to import ${bureau} report.`);
+      toast.error(error?.message || "Failed to import bureau report");
     }
   };
 
-  if (reportsLoading) {
-    return <div className="flex h-32 items-center justify-center"><Loader2 className="h-6 w-6 animate-spin text-primary" /></div>;
-  }
+  const openEditReport = (r: any) => {
+    setEditingReportId(r.id);
+    setReportForm({
+      bureau: r.bureau || "", reportDate: r.reportDate || "",
+      ficoScore: r.ficoScore?.toString() || "", ficoScoreModel: r.ficoScoreModel || "",
+      evaluation: r.evaluation || "",
+      openAccounts: r.openAccounts?.toString() || "",
+      selfReportedAccounts: r.selfReportedAccounts?.toString() || "",
+      closedAccounts: r.closedAccounts?.toString() || "",
+      collectionsCount: r.collectionsCount?.toString() || "",
+      averageAccountAge: r.averageAccountAge || "", oldestAccount: r.oldestAccount || "",
+      creditUsagePercent: r.creditUsagePercent || "", creditUsed: r.creditUsed || "", creditLimit: r.creditLimit || "",
+      creditUsagePercentNoAU: r.creditUsagePercentNoAU || "", creditUsedNoAU: r.creditUsedNoAU || "", creditLimitNoAU: r.creditLimitNoAU || "",
+      creditCardDebt: r.creditCardDebt || "", selfReportedBalance: r.selfReportedBalance || "",
+      loanDebt: r.loanDebt || "", collectionsDebt: r.collectionsDebt || "", totalDebt: r.totalDebt || "",
+      reportPersonName: r.reportPersonName || "", reportAlsoKnownAs: r.reportAlsoKnownAs || "",
+      reportYearOfBirth: r.reportYearOfBirth || "", reportAddresses: r.reportAddresses || "",
+      reportEmployers: r.reportEmployers || "",
+    });
+    setShowReportDialog(true);
+  };
+
+  const openNewReport = () => {
+    setEditingReportId(null);
+    setReportForm({ ...emptyReport, bureau: filterBureau });
+    setShowReportDialog(true);
+  };
+
+  const openNewAccount = () => {
+    setEditingAccountId(null);
+    setAccountForm({ ...emptyAccount, clientId: clientBusinessId || "", creditReportId: selectedReportId, openClosed: accountView });
+    setShowAccountDialog(true);
+  };
+  const openEditAccount = (acc: any) => {
+    setEditingAccountId(acc.id);
+    setAccountForm({
+      creditReportId: acc.creditReportId ?? null,
+      clientId: acc.clientId || clientBusinessId || "",
+      bureau: acc.bureau || "", reportDate: acc.reportDate || "",
+      accountName: acc.accountName || "", openClosed: acc.openClosed || "Open",
+      responsibility: acc.responsibility || "Individual", accountNumber: acc.accountNumber || "",
+      dateOpened: acc.dateOpened || "", statusUpdated: acc.statusUpdated || "",
+      accountType: acc.accountType || "", status: acc.status || "",
+      balance: acc.balance || "", creditLimit: acc.creditLimit || "",
+      creditUsage: acc.creditUsage || "", balanceUpdated: acc.balanceUpdated || "",
+      originalBalance: acc.originalBalance || "", paidOff: acc.paidOff || "",
+      monthlyPayment: acc.monthlyPayment || "", lastPaymentDate: acc.lastPaymentDate || "",
+      terms: acc.terms || "", creditAccountCategory: acc.creditAccountCategory || "",
+      dispute: acc.dispute || "",
+    });
+    setShowAccountDialog(true);
+  };
+
+  const openNewInquiry = () => {
+    setEditingInquiryId(null);
+    setInquiryForm(emptyInquiry);
+    setShowInquiryDialog(true);
+  };
+  const openEditInquiry = (inq: any) => {
+    setEditingInquiryId(inq.id);
+    setInquiryForm({
+      accountName: inq.accountName || "", inquiredOn: inq.inquiredOn || "",
+      businessType: inq.businessType || "", address: inq.address || "",
+      contactNumber: inq.contactNumber || "", note: inq.note || "",
+    });
+    setShowInquiryDialog(true);
+  };
+
+  const saveReport = () => {
+    const payload = {
+      clientProfileId: clientId,
+      bureau: reportForm.bureau || null, reportDate: reportForm.reportDate || null,
+      ficoScore: reportForm.ficoScore ? parseInt(reportForm.ficoScore) : null,
+      ficoScoreModel: reportForm.ficoScoreModel || null,
+      evaluation: (reportForm.evaluation as Evaluation) || null,
+      openAccounts: reportForm.openAccounts ? parseInt(reportForm.openAccounts) : null,
+      selfReportedAccounts: reportForm.selfReportedAccounts ? parseInt(reportForm.selfReportedAccounts) : null,
+      closedAccounts: reportForm.closedAccounts ? parseInt(reportForm.closedAccounts) : null,
+      collectionsCount: reportForm.collectionsCount ? parseInt(reportForm.collectionsCount) : null,
+      averageAccountAge: reportForm.averageAccountAge || null, oldestAccount: reportForm.oldestAccount || null,
+      creditUsagePercent: reportForm.creditUsagePercent || null, creditUsed: reportForm.creditUsed || null,
+      creditLimit: reportForm.creditLimit || null,
+      creditUsagePercentNoAU: reportForm.creditUsagePercentNoAU || null,
+      creditUsedNoAU: reportForm.creditUsedNoAU || null,
+      creditLimitNoAU: reportForm.creditLimitNoAU || null,
+      creditCardDebt: reportForm.creditCardDebt || null,
+      selfReportedBalance: reportForm.selfReportedBalance || null,
+      loanDebt: reportForm.loanDebt || null, collectionsDebt: reportForm.collectionsDebt || null,
+      totalDebt: reportForm.totalDebt || null,
+      reportPersonName: reportForm.reportPersonName || null,
+      reportAlsoKnownAs: reportForm.reportAlsoKnownAs || null,
+      reportYearOfBirth: reportForm.reportYearOfBirth || null,
+      reportAddresses: reportForm.reportAddresses || null,
+      reportEmployers: reportForm.reportEmployers || null,
+    };
+    if (editingReportId) updateReportMutation.mutate({ id: editingReportId, ...payload });
+    else createReportMutation.mutate(payload);
+  };
+
+  const saveAccount = () => {
+    const payload = {
+      clientProfileId: clientId,
+      creditReportId: accountForm.creditReportId,
+      clientId: accountForm.clientId || null, bureau: accountForm.bureau || null,
+      reportDate: accountForm.reportDate || null, accountName: accountForm.accountName || null,
+      openClosed: accountForm.openClosed || null, responsibility: accountForm.responsibility || null,
+      accountNumber: accountForm.accountNumber || null, dateOpened: accountForm.dateOpened || null,
+      statusUpdated: accountForm.statusUpdated || null, accountType: accountForm.accountType || null,
+      status: accountForm.status || null, balance: accountForm.balance || null,
+      creditLimit: accountForm.creditLimit || null, creditUsage: accountForm.creditUsage || null,
+      balanceUpdated: accountForm.balanceUpdated || null, originalBalance: accountForm.originalBalance || null,
+      paidOff: accountForm.paidOff || null, monthlyPayment: accountForm.monthlyPayment || null,
+      lastPaymentDate: accountForm.lastPaymentDate || null, terms: accountForm.terms || null,
+      creditAccountCategory: (accountForm.creditAccountCategory as Category) || null,
+      dispute: accountForm.dispute || null,
+    };
+    if (editingAccountId) updateAccountMutation.mutate({ id: editingAccountId, ...payload });
+    else addAccountMutation.mutate(payload);
+  };
+
+  const saveInquiry = () => {
+    if (!selectedReportId) return;
+    const payload = {
+      creditReportId: selectedReportId,
+      clientProfileId: clientId,
+      accountName: inquiryForm.accountName || null,
+      inquiredOn: inquiryForm.inquiredOn || null,
+      businessType: inquiryForm.businessType || null,
+      address: inquiryForm.address || null,
+      contactNumber: inquiryForm.contactNumber || null,
+      note: inquiryForm.note || null,
+    };
+    if (editingInquiryId) updateInquiryMutation.mutate({ id: editingInquiryId, ...payload });
+    else createInquiryMutation.mutate(payload);
+  };
+
+  const setR = (f: string) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => setReportForm(p => ({ ...p, [f]: e.target.value }));
+  const setA = (f: string) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => setAccountForm(p => ({ ...p, [f]: e.target.value }));
+  const setI = (f: string) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => setInquiryForm(p => ({ ...p, [f]: e.target.value }));
+
+  const fmtMoney = (v: string | null | undefined) => v ? `$${parseFloat(v).toLocaleString()}` : "—";
+  const fmt = (v: string | null | undefined) => v || "—";
+  const parsePct = (v: string | null | undefined): number => {
+    if (!v) return 0;
+    return parseFloat(v.replace("%", "")) || 0;
+  };
+
+  if (reportsLoading) return <div className="flex items-center justify-center h-32"><Loader2 className="w-6 h-6 animate-spin text-primary" /></div>;
+
+  const CategoryTable = ({ cat, cols, accs }: { cat: Category; cols: { label: string; key: string }[]; accs: any[] }) => {
+    const colors = CATEGORY_COLORS[cat];
+    return (
+      <div className="rounded-lg overflow-hidden border">
+        <div className={`px-4 py-2 flex items-center justify-between ${colors.header}`}>
+          <span className="text-sm font-semibold tracking-wide">{cat}</span>
+          <span className="text-xs opacity-80">{accs.length} account{accs.length !== 1 ? "s" : ""}</span>
+        </div>
+        <div className="overflow-x-auto">
+          <Table>
+            <TableHeader>
+              <TableRow className="bg-muted/30">
+                {cols.map(c => <TableHead key={c.key} className="text-xs whitespace-nowrap py-2">{c.label}</TableHead>)}
+                <TableHead className="text-xs w-16"></TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {accs.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={cols.length + 1} className={`text-center text-xs text-muted-foreground italic py-3 ${colors.row}`}>
+                    No accounts in this category
+                  </TableCell>
+                </TableRow>
+              ) : accs.map((acc, idx) => (
+                <TableRow key={acc.id} className={idx % 2 === 0 ? colors.row : "bg-white"}>
+                  {cols.map(c => (
+                    <TableCell key={c.key} className="text-xs whitespace-nowrap py-2">
+                      {c.key === "balance" || c.key === "creditLimit" || c.key === "originalBalance" || c.key === "monthlyPayment"
+                        ? fmtMoney((acc as any)[c.key])
+                        : fmt((acc as any)[c.key])}
+                    </TableCell>
+                  ))}
+                  <TableCell className="py-2">
+                    <div className="flex gap-1">
+                      <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => openEditAccount(acc)}><Edit2 className="w-3 h-3" /></Button>
+                      <Button variant="ghost" size="icon" className="h-6 w-6 text-destructive" onClick={() => setConfirmDeleteAccountId(acc.id)}><Trash2 className="w-3 h-3" /></Button>
+                    </div>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </div>
+      </div>
+    );
+  };
+
+  const isOpen = accountView === "Open";
+  const viewBg = isOpen ? "bg-[#D6EED7]" : "bg-[#F5D9D9]";
+  const byCategory = isOpen ? openByCategory : closedByCategory;
+  const cols = isOpen ? OPEN_COLS : CLOSED_COLS;
+  const viewCount = isOpen ? openAccounts.length : closedAccounts.length;
 
   return (
     <div className="space-y-6">
+      {/* Delete Confirmations */}
+      <AlertDialog open={confirmDeleteReportId !== null} onOpenChange={(open) => { if (!open) setConfirmDeleteReportId(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Credit Report?</AlertDialogTitle>
+            <AlertDialogDescription>This will permanently remove this credit report. This action cannot be undone.</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => { if (confirmDeleteReportId !== null) { deleteReportMutation.mutate({ id: confirmDeleteReportId }); setConfirmDeleteReportId(null); } }}>
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={confirmDeleteAccountId !== null} onOpenChange={(open) => { if (!open) setConfirmDeleteAccountId(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Credit Account?</AlertDialogTitle>
+            <AlertDialogDescription>This will permanently remove this credit account. This action cannot be undone.</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => { if (confirmDeleteAccountId !== null) { deleteAccountMutation.mutate({ id: confirmDeleteAccountId }); setConfirmDeleteAccountId(null); } }}>
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={confirmDeleteInquiryId !== null} onOpenChange={(open) => { if (!open) setConfirmDeleteInquiryId(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Inquiry?</AlertDialogTitle>
+            <AlertDialogDescription>This will permanently remove this inquiry record.</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => { if (confirmDeleteInquiryId !== null) { deleteInquiryMutation.mutate({ id: confirmDeleteInquiryId }); setConfirmDeleteInquiryId(null); } }}>
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* ── Filters ── */}
       <Card>
-        <CardHeader className="pb-4">
+        <CardContent className="pt-4 pb-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="flex flex-wrap items-center gap-2">
-              {BUREAUS.map((item) => (
-                <Button key={item} size="sm" variant={bureau === item ? "default" : "outline"} onClick={() => setBureau(item)}>
-                  {item}
+            <div className="flex flex-wrap gap-2">
+              {bureauOptions.map((bureau) => (
+                <Button key={bureau} size="sm" variant={filterBureau === bureau ? "default" : "outline"} onClick={() => setFilterBureau(bureau)}>
+                  {bureau}
                 </Button>
               ))}
             </div>
             <div className="flex flex-wrap items-center gap-2">
               <Button size="sm" variant="outline" onClick={handleDownloadTemplate} className="gap-1">
-                <Download className="h-3.5 w-3.5" /> Template
+                <Download className="w-3.5 h-3.5" /> Template
               </Button>
               <Button size="sm" variant="outline" onClick={handleExport} className="gap-1">
-                <Download className="h-3.5 w-3.5" /> Export Data
+                <Download className="w-3.5 h-3.5" /> Export Data
               </Button>
               <Button size="sm" onClick={() => setShowImportDialog(true)} className="gap-1">
-                <ClipboardPaste className="h-3.5 w-3.5" /> Import Bureau Report
+                <ClipboardPaste className="w-3.5 h-3.5" /> Import Bureau Report
               </Button>
             </div>
           </div>
-          {duplicateCount > 1 && <p className="text-xs text-amber-600">Multiple {bureau} reports exist in the database. This page is using the newest one.</p>}
-        </CardHeader>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <div className="flex items-center justify-between gap-2">
-            <CardTitle>{bureau} Credit Report Summary</CardTitle>
-            {currentReport ? <Badge variant="secondary">Active</Badge> : <Badge variant="outline">No report yet</Badge>}
-          </div>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          {!currentReport ? (
-            <div className="rounded-lg border border-dashed p-6 text-sm text-muted-foreground">No {bureau} report added yet. Use <span className="font-medium text-foreground">Import Bureau Report</span> to replace the current {bureau} summary and accounts in one step.</div>
-          ) : (
-            <>
-              <div className="grid gap-4 md:grid-cols-4">
-                <div className="rounded-lg bg-black p-4 text-white md:col-span-2">
-                  <div className="text-2xl font-semibold">{bureau}</div>
-                  <div className="mt-1 text-sm text-white/80">{currentReport.reportDate || "No Date"}</div>
-                  <div className="mt-4 text-sm">FICO Score {currentReport.ficoScore || "—"}</div>
-                </div>
-                <div className="rounded-lg border p-4">
-                  <div className="text-xs uppercase text-muted-foreground">Evaluation</div>
-                  <div className="mt-2 text-lg font-semibold">{currentReport.evaluation || "Not Set"}</div>
-                </div>
-                <div className="rounded-lg border p-4">
-                  <div className="text-xs uppercase text-muted-foreground">Credit Utilization</div>
-                  <div className="mt-2 text-lg font-semibold">{formatPercent(currentReport.creditUsagePercent)}</div>
-                </div>
-              </div>
-
-              <div className="grid gap-4 lg:grid-cols-3">
-                <div className="rounded-lg border p-4">
-                  <div className="mb-3 text-xs font-semibold uppercase text-muted-foreground">Account Summary</div>
-                  <div className="space-y-2 text-sm">
-                    <div className="flex justify-between"><span>Open Accounts</span><span>{currentReport.openAccounts ?? "—"}</span></div>
-                    <div className="flex justify-between"><span>Self-Reported Accounts</span><span>{currentReport.selfReportedAccounts ?? "—"}</span></div>
-                    <div className="flex justify-between"><span>Closed Accounts</span><span>{currentReport.closedAccounts ?? "—"}</span></div>
-                    <div className="flex justify-between"><span>Collections</span><span>{currentReport.collectionsCount ?? "—"}</span></div>
-                    <div className="flex justify-between"><span>Average Account Age</span><span>{currentReport.averageAccountAge || "—"}</span></div>
-                    <div className="flex justify-between"><span>Oldest Account</span><span>{currentReport.oldestAccount || "—"}</span></div>
-                  </div>
-                </div>
-                <div className="rounded-lg border p-4">
-                  <div className="mb-3 text-xs font-semibold uppercase text-muted-foreground">Overall Credit Usage</div>
-                  <div className="space-y-2 text-sm">
-                    <div className="flex justify-between"><span>Credit Usage</span><span>{formatPercent(currentReport.creditUsagePercent)}</span></div>
-                    <div className="flex justify-between"><span>Credit Used</span><span>{formatMoney(currentReport.creditUsed)}</span></div>
-                    <div className="flex justify-between"><span>Credit Limit</span><span>{formatMoney(currentReport.creditLimit)}</span></div>
-                  </div>
-                </div>
-                <div className="rounded-lg border p-4">
-                  <div className="mb-3 text-xs font-semibold uppercase text-muted-foreground">Debt Summary</div>
-                  <div className="space-y-2 text-sm">
-                    <div className="flex justify-between"><span>Credit Card & Credit Line Debt</span><span>{formatMoney(currentReport.creditCardDebt)}</span></div>
-                    <div className="flex justify-between"><span>Self-Reported Account Balance</span><span>{formatMoney(currentReport.selfReportedBalance)}</span></div>
-                    <div className="flex justify-between"><span>Loan Debt</span><span>{formatMoney(currentReport.loanDebt)}</span></div>
-                    <div className="flex justify-between"><span>Collections Debt</span><span>{formatMoney(currentReport.collectionsDebt)}</span></div>
-                    <div className="flex justify-between font-semibold"><span>Total Debt</span><span>{formatMoney(currentReport.totalDebt)}</span></div>
-                  </div>
-                </div>
-              </div>
-            </>
-          )}
         </CardContent>
       </Card>
 
+      {/* ── Credit Report Summary ── */}
       <Card>
-        <CardHeader>
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <CardTitle>Credit Accounts</CardTitle>
-            <div className="flex items-center gap-2">
-              <Button size="sm" variant={accountView === "Open" ? "default" : "outline"} onClick={() => setAccountView("Open")}>Open ({openAccounts.length})</Button>
-              <Button size="sm" variant={accountView === "Closed" ? "default" : "outline"} onClick={() => setAccountView("Closed")}>Closed ({closedAccounts.length})</Button>
-            </div>
+        <CardHeader className="pb-3">
+          <div className="flex items-center justify-between gap-2">
+            <button className="flex items-center gap-2 text-left" onClick={() => setExpandedSummary(v => !v)}>
+              <CreditCard className="w-5 h-5 text-primary" />
+              <CardTitle className="text-base">Credit Report Summary</CardTitle>
+              {expandedSummary ? <ChevronUp className="w-4 h-4 text-muted-foreground" /> : <ChevronDown className="w-4 h-4 text-muted-foreground" />}
+            </button>
+            <div className="flex items-center gap-2">{duplicateCount > 1 && <span className="text-xs text-amber-600">Using newest of {duplicateCount} {filterBureau} reports</span>}<Button onClick={() => setShowImportDialog(true)} size="sm" className="gap-1 h-8 shrink-0"><ClipboardPaste className="w-3.5 h-3.5" /> Import Bureau Report</Button></div>
           </div>
         </CardHeader>
-        <CardContent className="space-y-4">
-          {accountsLoading ? <div className="flex justify-center py-8"><Loader2 className="h-5 w-5 animate-spin text-primary" /></div> : (
-            CATEGORIES.map((category) => {
-              const rows = byCategory[category];
-              return (
-                <div key={category} className="rounded-lg border">
-                  <div className="flex items-center justify-between border-b bg-muted/30 px-4 py-2 text-sm font-medium">
-                    <span>{category}</span>
-                    <span className="text-xs text-muted-foreground">{rows.length} account{rows.length === 1 ? "" : "s"}</span>
-                  </div>
-                  {rows.length === 0 ? (
-                    <div className="p-4 text-sm text-muted-foreground">No {accountView.toLowerCase()} accounts in this category.</div>
-                  ) : (
-                    <div className="overflow-x-auto">
-                      <Table>
-                        <TableHeader>
-                          <TableRow>
-                            <TableHead>Account Name</TableHead>
-                            <TableHead>Account Type</TableHead>
-                            <TableHead>Status</TableHead>
-                            <TableHead>Balance</TableHead>
-                            <TableHead>Credit Limit</TableHead>
-                            <TableHead>Credit Usage</TableHead>
-                            <TableHead>Date Opened</TableHead>
-                            <TableHead>Monthly Payment</TableHead>
-                          </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          {rows.map((row: any) => (
-                            <TableRow key={row.id}>
-                              <TableCell>{row.accountName || "—"}</TableCell>
-                              <TableCell>{row.accountType || "—"}</TableCell>
-                              <TableCell>{row.status || "—"}</TableCell>
-                              <TableCell>{formatMoney(row.balance)}</TableCell>
-                              <TableCell>{formatMoney(row.creditLimit)}</TableCell>
-                              <TableCell>{row.creditUsage || "—"}</TableCell>
-                              <TableCell>{row.dateOpened || "—"}</TableCell>
-                              <TableCell>{formatMoney(row.monthlyPayment)}</TableCell>
-                            </TableRow>
-                          ))}
-                        </TableBody>
-                      </Table>
+        {expandedSummary && (
+          <CardContent className="space-y-6">
+            {filteredReports.length === 0 && (
+              reports && reports.length > 0 ? (
+                <p className="text-sm text-muted-foreground italic text-center py-4">No report exists for this bureau yet.</p>
+              ) : (
+                <div className="border-2 border-dashed border-border rounded-xl overflow-hidden opacity-60">
+                  {/* Empty Block 1 */}
+                  <div className="relative" style={{ backgroundColor: "#000" }}>
+                    <div className="flex items-center justify-between px-5 pt-4 pb-1">
+                      <div className="flex flex-col gap-0.5">
+                        <span className="text-slate-500 text-xl font-bold tracking-wide">Credit Bureau</span>
+                        <span className="text-slate-600 text-xs">No Date</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-slate-600 text-xs italic">No report added yet</span>
+                        <Button
+                          type="button"
+                          size="sm"
+                          className="h-7 gap-1"
+                          onClick={(e) => { e.stopPropagation(); setShowImportDialog(true); }}
+                        >
+                          <ClipboardPaste className="w-3 h-3" /> Import Bureau Report
+                        </Button>
+                      </div>
                     </div>
-                  )}
+                    <div className="flex items-center justify-center gap-10 px-5 py-5">
+                      <div className="flex flex-col items-center gap-1">
+                        <span className="text-slate-500 text-xs uppercase tracking-widest">FICO Score</span>
+                        <span className="text-slate-600 font-extrabold" style={{ fontSize: "3.5rem", lineHeight: 1 }}>—</span>
+                      </div>
+                      <div className="w-px h-20 bg-white/10" />
+                      <div className="flex flex-col items-center gap-1">
+                        <span className="text-slate-500 text-xs uppercase tracking-widest">Credit Utilization</span>
+                        <PieChart percent={0} color="#6B8DD6" size={90} textColor="#ffffff" />
+                      </div>
+                      <div className="w-px h-20 bg-white/10" />
+                      <div className="flex flex-col items-center gap-2">
+                        <span className="text-slate-500 text-xs uppercase tracking-widest">Evaluation</span>
+                        <div className="rounded-lg px-5 py-2 text-center text-xs text-slate-500 border border-slate-700">Not Set</div>
+                      </div>
+                    </div>
+                  </div>
+                  {/* Empty Block 2 */}
+                  <div className="grid grid-cols-1 md:grid-cols-3 divide-y md:divide-y-0 md:divide-x border-t">
+                    {["Account Summary", "Overall Credit Usage", "Debt Summary"].map(section => (
+                      <div key={section} className="p-4 space-y-2">
+                        <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">{section}</h4>
+                        {[1,2,3,4].map(i => (
+                          <div key={i} className="flex justify-between items-center text-sm py-0.5 border-b border-muted/30 last:border-0">
+                            <span className="text-muted-foreground/50 text-xs">—</span>
+                            <span className="font-semibold text-xs text-muted-foreground/50">—</span>
+                          </div>
+                        ))}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )
+            )}
+            {filteredReports.map((report) => {
+              const evalCfg = report.evaluation ? EVALUATION_CONFIG[report.evaluation as Evaluation] : null;
+              const pctOrig = parsePct(report.creditUsagePercent);
+              const pctNoAU = parsePct(report.creditUsagePercentNoAU);
+              const isSelected = selectedReportId === report.id;
+
+              return (
+                <div key={report.id} className={`border-2 rounded-xl overflow-hidden transition-colors ${isSelected ? "border-primary" : "border-border"}`}>
+
+                  {/* ── BLOCK 1: Header ── */}
+              <div
+                    className="relative cursor-pointer"
+                    style={{ backgroundColor: "#000" }}
+                    onClick={() => setSelectedReportId(isSelected ? null : report.id)}
+                  >
+                    {/* Top bar: bureau left, edit button right */}
+                    <div className="flex items-center justify-between px-5 pt-4 pb-1">
+                      <div className="flex flex-col gap-0.5">
+                        <span className="text-white text-xl font-bold tracking-wide">{report.bureau || "Credit Bureau"}</span>
+                        <span className="text-slate-400 text-xs">{report.reportDate || "No Date"}</span>
+                        {report.ficoScoreModel && <span className="text-slate-500 text-xs">{report.ficoScoreModel}</span>}
+                      </div>
+                      <div className="flex items-center gap-2" onClick={e => e.stopPropagation()}>
+                        {isSelected && <Badge variant="default" className="text-xs bg-primary">Viewing accounts</Badge>}
+                        <Button variant="outline" size="sm" onClick={() => openEditReport(report)} className="h-6 gap-1 text-[11px] px-2 bg-white/10 border-white/20 text-white hover:bg-white/20">
+                          <Edit2 className="w-2.5 h-2.5" /> Edit
+                        </Button>
+                      </div>
+                    </div>
+                    {/* Center: FICO Score + Credit Utilization */}
+                    <div className="flex items-center justify-center gap-10 px-5 py-5">
+                      {/* FICO Score */}
+                      <div className="flex flex-col items-center gap-1">
+                        <span className="text-slate-400 text-xs uppercase tracking-widest">FICO Score</span>
+                        <span className="text-white font-extrabold" style={{ fontSize: "3.5rem", lineHeight: 1 }}>{report.ficoScore ?? "—"}</span>
+                      </div>
+                      {/* Divider */}
+                      <div className="w-px h-20 bg-white/20" />
+                      {/* Credit Utilization */}
+                      <div className="flex flex-col items-center gap-1">
+                        <span className="text-slate-400 text-xs uppercase tracking-widest">Credit Utilization</span>
+                        <PieChart percent={pctOrig} color={evalCfg ? evalCfg.color : "#6B8DD6"} size={90} textColor="#ffffff" />
+                      </div>
+                      {/* Divider */}
+                      <div className="w-px h-20 bg-white/20" />
+                      {/* Evaluation */}
+                      <div className="flex flex-col items-center gap-2">
+                        <span className="text-slate-400 text-xs uppercase tracking-widest">Evaluation</span>
+                        {evalCfg ? (
+                          <div className="rounded-lg px-5 py-2 text-center font-bold text-base" style={{ backgroundColor: evalCfg.bg, color: evalCfg.color, border: `2px solid ${evalCfg.color}` }}>
+                            {evalCfg.label}
+                          </div>
+                        ) : (
+                          <div className="rounded-lg px-5 py-2 text-center text-xs text-slate-400 border border-slate-600">Not Set</div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* ── BLOCK 2: Account Summary + Credit Usage + Debt Summary ── */}
+                  <div className="grid grid-cols-1 md:grid-cols-3 divide-y md:divide-y-0 md:divide-x border-t">
+
+                    {/* Block 2.1: Account Summary */}
+                    <div className="p-4 space-y-2">
+                      <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">Account Summary</h4>
+                      {[
+                        ["Open Accounts", report.openAccounts],
+                        ["Self-Reported Accounts", report.selfReportedAccounts],
+                        ["Closed Accounts", report.closedAccounts],
+                        ["Collections", report.collectionsCount],
+                        ["Average Account Age", report.averageAccountAge],
+                        ["Oldest Account Age", report.oldestAccount],
+                      ].map(([label, value]) => (
+                        <div key={String(label)} className="flex justify-between items-center text-sm py-0.5 border-b border-muted/30 last:border-0">
+                          <span className="text-muted-foreground text-xs">{label}</span>
+                          <span className="font-semibold text-xs">{value ?? "—"}</span>
+                        </div>
+                      ))}
+                    </div>
+
+                    {/* Block 2.2: Overall Credit Usage */}
+                    <div className="p-4 space-y-3">
+                      <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">Overall Credit Usage</h4>
+                      <div className="grid grid-cols-2 gap-3">
+                        {/* 2.2.1 Original Report */}
+                        <div className="space-y-2">
+                          <p className="text-xs font-medium text-center text-muted-foreground">Original Report</p>
+                          <div className="flex justify-center">
+                            <PieChart percent={pctOrig} color="#6B8DD6" size={70} />
+                          </div>
+                          <div className="space-y-1">
+                            <div className="flex justify-between text-xs">
+                              <span className="text-muted-foreground">Credit Usage</span>
+                              <span className="font-semibold">{report.creditUsagePercent || "—"}</span>
+                            </div>
+                            <div className="flex justify-between text-xs">
+                              <span className="text-muted-foreground">Credit Used</span>
+                              <span className="font-semibold">{fmtMoney(report.creditUsed)}</span>
+                            </div>
+                            <div className="flex justify-between text-xs">
+                              <span className="text-muted-foreground">Credit Limit</span>
+                              <span className="font-semibold">{fmtMoney(report.creditLimit)}</span>
+                            </div>
+                          </div>
+                        </div>
+                        {/* 2.2.2 Without Authorized User */}
+                        <div className="space-y-2">
+                          <p className="text-xs font-medium text-center text-muted-foreground">Without Auth. User</p>
+                          <div className="flex justify-center">
+                            <PieChart percent={pctNoAU} color="#C0634D" size={70} />
+                          </div>
+                          <div className="space-y-1">
+                            <div className="flex justify-between text-xs">
+                              <span className="text-muted-foreground">Credit Usage</span>
+                              <span className="font-semibold">{report.creditUsagePercentNoAU || "—"}</span>
+                            </div>
+                            <div className="flex justify-between text-xs">
+                              <span className="text-muted-foreground">Credit Used</span>
+                              <span className="font-semibold">{fmtMoney(report.creditUsedNoAU)}</span>
+                            </div>
+                            <div className="flex justify-between text-xs">
+                              <span className="text-muted-foreground">Credit Limit</span>
+                              <span className="font-semibold">{fmtMoney(report.creditLimitNoAU)}</span>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Block 2.3: Debt Summary */}
+                    <div className="p-4 space-y-2">
+                      <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">Debt Summary</h4>
+                      {[
+                        ["Credit Card & Credit Line Debt", fmtMoney(report.creditCardDebt)],
+                        ["Self-Reported Account Balance", fmtMoney(report.selfReportedBalance)],
+                        ["Loan Debt", fmtMoney(report.loanDebt)],
+                        ["Collections Debt", fmtMoney(report.collectionsDebt)],
+                        ["Total Debt", fmtMoney(report.totalDebt)],
+                      ].map(([label, value]) => (
+                        <div key={String(label)} className={`flex justify-between items-center text-sm py-0.5 border-b border-muted/30 last:border-0 ${label === "Total Debt" ? "font-bold" : ""}`}>
+                          <span className="text-muted-foreground text-xs">{label}</span>
+                          <span className={`text-xs ${label === "Total Debt" ? "text-primary font-bold" : "font-semibold"}`}>{value}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* ── BLOCK 3 + 4: Personal Info + Inquiries ── */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 divide-y md:divide-y-0 md:divide-x border-t">
+
+                    {/* Block 3: Personal Information */}
+                    <div className="p-4 space-y-2">
+                      <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">Personal Information</h4>
+                      {[
+                        ["Name", report.reportPersonName],
+                        ["Also Known As", report.reportAlsoKnownAs],
+                        ["Year of Birth", report.reportYearOfBirth],
+                      ].map(([label, value]) => (
+                        <div key={String(label)} className="flex justify-between items-start text-xs py-0.5 border-b border-muted/30 last:border-0">
+                          <span className="text-muted-foreground shrink-0 mr-2">{label}</span>
+                          <span className="font-medium text-right">{value || "—"}</span>
+                        </div>
+                      ))}
+                      <div className="pt-1">
+                        <p className="text-muted-foreground text-xs mb-1">Addresses</p>
+                        <p className="text-xs font-medium whitespace-pre-wrap">{report.reportAddresses || "—"}</p>
+                      </div>
+                      <div className="pt-1">
+                        <p className="text-muted-foreground text-xs mb-1">Employers</p>
+                        <p className="text-xs font-medium whitespace-pre-wrap">{report.reportEmployers || "—"}</p>
+                      </div>
+                    </div>
+
+                    {/* Block 4: Inquiries */}
+                    <div className="p-4 space-y-2">
+                      <div className="flex items-center justify-between mb-3">
+                        <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Inquiries</h4>
+                        {isSelected && (
+                          <Button size="sm" variant="outline" className="h-6 text-xs gap-1" onClick={openNewInquiry}>
+                            <Plus className="w-3 h-3" /> Add
+                          </Button>
+                        )}
+                      </div>
+                      {!isSelected ? (
+                        <p className="text-xs text-muted-foreground italic">Select this report to view and manage inquiries.</p>
+                      ) : !inquiries || inquiries.length === 0 ? (
+                        <p className="text-xs text-muted-foreground italic">No inquiries recorded for this report.</p>
+                      ) : (
+                        <div className="space-y-2 max-h-64 overflow-y-auto">
+                          {inquiries.map(inq => (
+                            <div key={inq.id} className="border rounded-lg p-2 text-xs space-y-0.5 bg-muted/20">
+                              <div className="flex items-center justify-between">
+                                <span className="font-semibold">{inq.accountName || "Unknown"}</span>
+                                <div className="flex gap-1">
+                                  <Button variant="ghost" size="icon" className="h-5 w-5" onClick={() => openEditInquiry(inq)}><Edit2 className="w-2.5 h-2.5" /></Button>
+                                  <Button variant="ghost" size="icon" className="h-5 w-5 text-destructive" onClick={() => setConfirmDeleteInquiryId(inq.id)}><Trash2 className="w-2.5 h-2.5" /></Button>
+                                </div>
+                              </div>
+                              {inq.inquiredOn && <p className="text-muted-foreground">Inquired: {inq.inquiredOn}</p>}
+                              {inq.businessType && <p className="text-muted-foreground">Type: {inq.businessType}</p>}
+                              {inq.address && <p className="text-muted-foreground">{inq.address}</p>}
+                              {inq.contactNumber && <p className="text-muted-foreground">{inq.contactNumber}</p>}
+                              {inq.note && <p className="text-muted-foreground italic">{inq.note}</p>}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
                 </div>
               );
-            })
-          )}
-        </CardContent>
+            })}
+          </CardContent>
+        )}
+      </Card>
+
+      {/* ── Credit Accounts ── */}
+      <Card style={{ backgroundColor: accountView === "Open" ? "#8EBF90" : "#D48F8F", transition: "background-color 0.3s ease" }}>
+        <CardHeader className="pb-3">
+          <div className="flex items-center justify-between flex-wrap gap-2">
+            <button className="flex items-center gap-2 text-left" onClick={() => setExpandedAccounts(v => !v)}>
+              <CardTitle className="text-base">Credit Accounts</CardTitle>
+              {accounts && <Badge variant="secondary" className="text-xs">{accounts.length} total</Badge>}
+                            {expandedAccounts ? <ChevronUp className="w-4 h-4 text-muted-foreground" /> : <ChevronDown className="w-4 h-4 text-muted-foreground" />}
+            </button>
+            <div className="flex items-center gap-2">
+              <div className="flex rounded-lg overflow-hidden border text-xs font-medium">
+                <button
+                  className={`px-4 py-1.5 transition-colors ${accountView === "Open" ? "bg-[#D6EED7] text-black font-bold" : "bg-white text-muted-foreground hover:bg-muted/40"}`}
+                  onClick={() => setAccountView("Open")}
+                >
+                  Open ({openAccounts.length})
+                </button>
+                <button
+                  className={`px-4 py-1.5 transition-colors ${accountView === "Closed" ? "bg-[#F5D9D9] text-black font-bold" : "bg-white text-muted-foreground hover:bg-muted/40"}`}
+                  onClick={() => setAccountView("Closed")}
+                >
+                  Closed ({closedAccounts.length})
+                </button>
+              </div>
+                            <Button onClick={openNewAccount} size="sm" className="gap-1 h-8">
+                <Plus className="w-3.5 h-3.5" /> Add Account
+              </Button>
+            </div>
+          </div>
+                  </CardHeader>
+        {expandedAccounts && (
+          <CardContent className="space-y-4">
+            <div className={`rounded-lg px-4 py-2 flex items-center justify-between ${viewBg}`}>
+              <span className="text-black font-bold text-sm">{accountView} Accounts</span>
+              <span className="text-black text-xs opacity-70">{viewCount} account{viewCount !== 1 ? "s" : ""}</span>
+            </div>
+            {accountsLoading && <div className="flex justify-center py-4"><Loader2 className="w-5 h-5 animate-spin text-primary" /></div>}
+            {!accountsLoading && (
+              <div className="space-y-4">
+                {CATEGORIES.map(cat => (
+                  <CategoryTable key={cat} cat={cat} cols={cols[cat]} accs={byCategory[cat]} />
+                ))}
+              </div>
+            )}
+          </CardContent>
+        )}
       </Card>
 
       <Dialog open={showImportDialog} onOpenChange={setShowImportDialog}>
-        <DialogContent className="max-w-4xl">
+        <DialogContent className="max-w-3xl">
           <DialogHeader>
-            <DialogTitle>Import {bureau} Report</DialogTitle>
-            <DialogDescription>
-              Paste the full {bureau} sheet here. Import will replace the current {bureau} summary, accounts, and inquiries for this client.
-            </DialogDescription>
+            <DialogTitle>Import Bureau Report</DialogTitle>
           </DialogHeader>
           <div className="space-y-3 py-2">
-            <div className="rounded-md border bg-muted/30 p-3 text-xs text-muted-foreground">
-              Use the exported file or template as your guide. This importer expects the summary section first and the account table below it.
-            </div>
-            <Textarea rows={18} value={importText} onChange={(e) => setImportText(e.target.value)} placeholder={templateContent(bureau)} />
+            <p className="text-sm text-muted-foreground">Paste the full bureau report export/template here. This replaces the current summary, inquiries, and accounts for the selected bureau.</p>
+            <Textarea rows={12} value={importText} onChange={(e) => setImportText(e.target.value)} placeholder={templateContent(filterBureau)} />
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowImportDialog(false)}>Cancel</Button>
-            <Button onClick={handleImport} disabled={createReportMutation.isPending || updateReportMutation.isPending || addCreditAccountMutation.isPending}>
-              Replace {bureau} Data
+            <Button onClick={handleImport} disabled={createReportMutation.isPending || updateReportMutation.isPending}>Import Bureau Report</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Report Dialog */}
+      <Dialog open={showReportDialog} onOpenChange={setShowReportDialog}>
+        <DialogContent className="max-w-3xl max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>{editingReportId ? "Edit Credit Report" : "Add Credit Report"}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            {/* Basic Info */}
+            <div>
+              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">Basic Info</p>
+              <div className="grid grid-cols-2 gap-3">
+                {([ ["Bureau", "bureau", "Experian"], ["Report Date", "reportDate", "2/26/2026"], ["FICO Score", "ficoScore", "806"], ["FICO Model", "ficoScoreModel", "FICO Score 8"] ] as [string,string,string][]).map(([label, field, ph]) => (
+                  <div key={field} className="space-y-1">
+                    <Label className="text-xs">{label}</Label>
+                    <Input value={(reportForm as any)[field]} onChange={setR(field)} placeholder={ph} className="h-8 text-sm" />
+                  </div>
+                ))}
+                <div className="col-span-2 space-y-1">
+                  <Label className="text-xs">Evaluation</Label>
+                  <Select value={reportForm.evaluation || "none"} onValueChange={(v) => setReportForm(p => ({ ...p, evaluation: v === "none" ? "" : v as Evaluation }))}>
+                    <SelectTrigger className="h-8 text-sm"><SelectValue placeholder="Select evaluation" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">— None —</SelectItem>
+                      {(Object.keys(EVALUATION_CONFIG) as Evaluation[]).map(e => (
+                        <SelectItem key={e} value={e}>
+                          <span style={{ color: EVALUATION_CONFIG[e].color, fontWeight: 600 }}>{e}</span>
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+            </div>
+            {/* Account Summary */}
+            <div>
+              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">Account Summary</p>
+              <div className="grid grid-cols-2 gap-3">
+                {([ ["Open Accounts", "openAccounts", "8"], ["Self-Reported Accounts", "selfReportedAccounts", "0"], ["Closed Accounts", "closedAccounts", "5"], ["Collections", "collectionsCount", "0"], ["Avg Account Age", "averageAccountAge", "7 yrs 3 mos"], ["Oldest Account", "oldestAccount", "19 yrs 3 mos"] ] as [string,string,string][]).map(([label, field, ph]) => (
+                  <div key={field} className="space-y-1">
+                    <Label className="text-xs">{label}</Label>
+                    <Input value={(reportForm as any)[field]} onChange={setR(field)} placeholder={ph} className="h-8 text-sm" />
+                  </div>
+                ))}
+              </div>
+            </div>
+            {/* Credit Usage - Original */}
+            <div>
+              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">Credit Usage — Original Report</p>
+              <div className="grid grid-cols-3 gap-3">
+                {([ ["Credit Usage %", "creditUsagePercent", "26%"], ["Credit Used ($)", "creditUsed", "21931"], ["Credit Limit ($)", "creditLimit", "85000"] ] as [string,string,string][]).map(([label, field, ph]) => (
+                  <div key={field} className="space-y-1">
+                    <Label className="text-xs">{label}</Label>
+                    <Input value={(reportForm as any)[field]} onChange={setR(field)} placeholder={ph} className="h-8 text-sm" />
+                  </div>
+                ))}
+              </div>
+            </div>
+            {/* Credit Usage - Without Authorized User */}
+            <div>
+              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">Credit Usage — Without Authorized User</p>
+              <div className="grid grid-cols-3 gap-3">
+                {([ ["Credit Usage %", "creditUsagePercentNoAU", "30%"], ["Credit Used ($)", "creditUsedNoAU", "18000"], ["Credit Limit ($)", "creditLimitNoAU", "60000"] ] as [string,string,string][]).map(([label, field, ph]) => (
+                  <div key={field} className="space-y-1">
+                    <Label className="text-xs">{label}</Label>
+                    <Input value={(reportForm as any)[field]} onChange={setR(field)} placeholder={ph} className="h-8 text-sm" />
+                  </div>
+                ))}
+              </div>
+            </div>
+            {/* Debt Summary */}
+            <div>
+              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">Debt Summary</p>
+              <div className="grid grid-cols-2 gap-3">
+                {([ ["Credit Card & Line Debt ($)", "creditCardDebt", "21931"], ["Self-Reported Balance ($)", "selfReportedBalance", "0"], ["Loan Debt ($)", "loanDebt", "431638"], ["Collections Debt ($)", "collectionsDebt", "0"], ["Total Debt ($)", "totalDebt", "453569"] ] as [string,string,string][]).map(([label, field, ph]) => (
+                  <div key={field} className="space-y-1">
+                    <Label className="text-xs">{label}</Label>
+                    <Input value={(reportForm as any)[field]} onChange={setR(field)} placeholder={ph} className="h-8 text-sm" />
+                  </div>
+                ))}
+              </div>
+            </div>
+            {/* Personal Information */}
+            <div>
+              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">Personal Information</p>
+              <div className="grid grid-cols-2 gap-3">
+                {([ ["Name", "reportPersonName", "Margaret N. Tomdio"], ["Also Known As", "reportAlsoKnownAs", ""], ["Year of Birth", "reportYearOfBirth", "1980"] ] as [string,string,string][]).map(([label, field, ph]) => (
+                  <div key={field} className="space-y-1">
+                    <Label className="text-xs">{label}</Label>
+                    <Input value={(reportForm as any)[field]} onChange={setR(field)} placeholder={ph} className="h-8 text-sm" />
+                  </div>
+                ))}
+                <div className="col-span-2 space-y-1">
+                  <Label className="text-xs">Addresses (comma-separated)</Label>
+                  <Textarea value={reportForm.reportAddresses} onChange={setR("reportAddresses")} placeholder="28718 Pearl Bridge Ln Katy TX, 21611 Nella Cir Humble TX" className="text-sm min-h-[60px] resize-none" />
+                </div>
+                <div className="col-span-2 space-y-1">
+                  <Label className="text-xs">Employers (comma-separated)</Label>
+                  <Textarea value={reportForm.reportEmployers} onChange={setR("reportEmployers")} placeholder="Maxim Home Health, Pages Home Health" className="text-sm min-h-[60px] resize-none" />
+                </div>
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowReportDialog(false)}>Cancel</Button>
+            <Button onClick={saveReport} disabled={createReportMutation.isPending || updateReportMutation.isPending}>
+              {(createReportMutation.isPending || updateReportMutation.isPending) && <Loader2 className="w-4 h-4 animate-spin mr-2" />}
+              Save Report
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Account Dialog */}
+      <Dialog open={showAccountDialog} onOpenChange={setShowAccountDialog}>
+        <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>{editingAccountId ? "Edit Credit Account" : "Add Credit Account"}</DialogTitle>
+          </DialogHeader>
+          <div className="grid grid-cols-2 gap-3 py-2">
+            <div className="col-span-2 space-y-1">
+              <Label className="text-xs">Link to Credit Report</Label>
+              <Select
+                value={accountForm.creditReportId?.toString() ?? "none"}
+                onValueChange={(v) => setAccountForm(p => ({ ...p, creditReportId: v === "none" ? null : parseInt(v) }))}
+              >
+                <SelectTrigger className="h-8 text-sm"><SelectValue placeholder="Select report (optional)" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">No report linked</SelectItem>
+                  {reports?.map(r => (
+                    <SelectItem key={r.id} value={r.id.toString()}>
+                      {r.bureau || "Report"} — {r.reportDate || "No Date"} {r.ficoScore ? `(FICO ${r.ficoScore})` : ""}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            {([ ["Bureau", "bureau", "Experian"], ["Report Date", "reportDate", "2/26/2026"], ["Account Name", "accountName", "Bank of America"], ["Account Number", "accountNumber", "XXXX1234"], ["Date Opened", "dateOpened", "Oct 20, 2020"], ["Status Updated", "statusUpdated", "February 2026"], ["Account Type", "accountType", "Credit Card"], ["Status", "status", "Open/Never late"], ["Balance", "balance", "4019"], ["Credit Limit", "creditLimit", "5200"], ["Credit Usage", "creditUsage", "77%"], ["Balance Updated", "balanceUpdated", "Feb 2026"], ["Original Balance", "originalBalance", "5000"], ["Paid Off", "paidOff", "25%"], ["Monthly Payment", "monthlyPayment", "40"], ["Last Payment Date", "lastPaymentDate", "1/22/2026"], ["Terms", "terms", "Revolving"] ] as [string, string, string][]).map(([label, field, ph]) => (
+              <div key={field} className="space-y-1">
+                <Label className="text-xs">{label}</Label>
+                <Input value={(accountForm as any)[field]} onChange={setA(field)} placeholder={ph} className="h-8 text-sm" />
+              </div>
+            ))}
+            <div className="space-y-1">
+              <Label className="text-xs">Open / Closed</Label>
+              <Select value={accountForm.openClosed} onValueChange={(v) => setAccountForm(p => ({ ...p, openClosed: v }))}>
+                <SelectTrigger className="h-8 text-sm"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="Open">Open</SelectItem>
+                  <SelectItem value="Closed">Closed</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">Responsibility</Label>
+              <Select value={accountForm.responsibility} onValueChange={(v) => setAccountForm(p => ({ ...p, responsibility: v }))}>
+                <SelectTrigger className="h-8 text-sm"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="Individual">Individual</SelectItem>
+                  <SelectItem value="Joint">Joint</SelectItem>
+                  <SelectItem value="Authorized User">Authorized User</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="col-span-2 space-y-1">
+              <Label className="text-xs">Category</Label>
+              <Select
+                value={accountForm.creditAccountCategory || "none"}
+                onValueChange={(v) => setAccountForm(p => ({ ...p, creditAccountCategory: v === "none" ? "" : v as Category }))}
+              >
+                <SelectTrigger className="h-8 text-sm"><SelectValue placeholder="Select category" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">— None —</SelectItem>
+                  {CATEGORIES.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="col-span-2 space-y-1">
+              <Label className="text-xs">Dispute</Label>
+              <Textarea value={accountForm.dispute} onChange={setA("dispute")} placeholder="Enter dispute statement or notes..." className="text-sm min-h-[80px] resize-none" />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowAccountDialog(false)}>Cancel</Button>
+            <Button onClick={saveAccount} disabled={addAccountMutation.isPending || updateAccountMutation.isPending}>
+              {(addAccountMutation.isPending || updateAccountMutation.isPending) && <Loader2 className="w-4 h-4 animate-spin mr-2" />}
+              Save Account
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Inquiry Dialog */}
+      <Dialog open={showInquiryDialog} onOpenChange={setShowInquiryDialog}>
+        <DialogContent className="max-w-lg max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>{editingInquiryId ? "Edit Inquiry" : "Add Inquiry"}</DialogTitle>
+          </DialogHeader>
+          <div className="grid grid-cols-2 gap-3 py-2">
+            {([ ["Account Name", "accountName", "SOFI BANK NA"], ["Inquired On", "inquiredOn", "Dec 12, 2025"], ["Business Type", "businessType", "All Banks - non specific"], ["Contact Number", "contactNumber", "(855) 456-7634"] ] as [string,string,string][]).map(([label, field, ph]) => (
+              <div key={field} className="space-y-1">
+                <Label className="text-xs">{label}</Label>
+                <Input value={(inquiryForm as any)[field]} onChange={setI(field)} placeholder={ph} className="h-8 text-sm" />
+              </div>
+            ))}
+            <div className="col-span-2 space-y-1">
+              <Label className="text-xs">Address</Label>
+              <Input value={inquiryForm.address} onChange={setI("address")} placeholder="2750 E Cottonwood Pkwy S, El Paso TX 84121" className="h-8 text-sm" />
+            </div>
+            <div className="col-span-2 space-y-1">
+              <Label className="text-xs">Note</Label>
+              <Textarea value={inquiryForm.note} onChange={setI("note")} placeholder="This inquiry is scheduled to continue on record until Jan 2028" className="text-sm min-h-[80px] resize-none" />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowInquiryDialog(false)}>Cancel</Button>
+            <Button onClick={saveInquiry} disabled={createInquiryMutation.isPending || updateInquiryMutation.isPending}>
+              {(createInquiryMutation.isPending || updateInquiryMutation.isPending) && <Loader2 className="w-4 h-4 animate-spin mr-2" />}
+              Save Inquiry
             </Button>
           </DialogFooter>
         </DialogContent>
