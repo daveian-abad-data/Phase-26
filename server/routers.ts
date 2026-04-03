@@ -31,6 +31,7 @@ import {
   createInquiry,
   updateInquiry,
   deleteInquiry,
+  replaceInquiriesForReport,
   createCreditReport,
   updateCreditReport,
   deleteCreditReport,
@@ -38,6 +39,7 @@ import {
   createCreditAccount,
   updateCreditAccount,
   deleteCreditAccount,
+  replaceCreditAccountsForReport,
   getFundingApplicationsByClientId,
   createFundingApplication,
   updateFundingApplication,
@@ -105,6 +107,75 @@ const staffProcedure = publicProcedure.use(async ({ ctx, next }) => {
 const adminProcedure = staffProcedure;
 
 // ─── Client Profile Input Schema ──────────────────────────────────────────
+
+// ─── Credit report import helpers ────────────────────────────────────────
+
+const bureauEnum = z.enum(["Experian", "TransUnion", "Equifax"]);
+const accountCategoryEnum = z.enum(["Cards", "Car", "House", "Secured Loan", "Unsecured Loan", "Others"]);
+
+const creditSummaryImportSchema = z.object({
+  reportId: z.number(),
+  bureau: bureauEnum.optional(),
+  reportDate: z.string().optional().nullable(),
+  ficoScore: z.number().int().optional().nullable(),
+  ficoScoreModel: z.string().optional().nullable(),
+  evaluation: z.enum(["Poor", "Fair", "Good", "Very Good", "Exceptional"]).optional().nullable(),
+  openAccounts: z.number().int().optional().nullable(),
+  selfReportedAccounts: z.number().int().optional().nullable(),
+  accountsEverLate: z.number().int().optional().nullable(),
+  closedAccounts: z.number().int().optional().nullable(),
+  collectionsCount: z.number().int().optional().nullable(),
+  creditUsagePercent: z.string().optional().nullable(),
+  creditUsed: z.string().optional().nullable(),
+  creditLimit: z.string().optional().nullable(),
+  creditCardDebt: z.string().optional().nullable(),
+  selfReportedBalance: z.string().optional().nullable(),
+  loanDebt: z.string().optional().nullable(),
+  collectionsDebt: z.string().optional().nullable(),
+  totalDebt: z.string().optional().nullable(),
+  averageAccountAge: z.string().optional().nullable(),
+  oldestAccount: z.string().optional().nullable(),
+  reportPersonName: z.string().optional().nullable(),
+  reportAlsoKnownAs: z.string().optional().nullable(),
+  reportYearOfBirth: z.string().optional().nullable(),
+  reportAddresses: z.string().optional().nullable(),
+  reportEmployers: z.string().optional().nullable(),
+});
+
+const creditInquiryImportRowSchema = z.object({
+  accountName: z.string().optional().nullable(),
+  inquiredOn: z.string().optional().nullable(),
+  businessType: z.string().optional().nullable(),
+  address: z.string().optional().nullable(),
+  cityStateZip: z.string().optional().nullable(),
+  contactNumber: z.string().optional().nullable(),
+  scheduledToRemainUntil: z.string().optional().nullable(),
+  note: z.string().optional().nullable(),
+});
+
+const creditAccountImportRowSchema = z.object({
+  bureau: z.string().optional().nullable(),
+  reportDate: z.string().optional().nullable(),
+  accountName: z.string().optional().nullable(),
+  openClosed: z.string().optional().nullable(),
+  responsibility: z.string().optional().nullable(),
+  accountNumber: z.string().optional().nullable(),
+  dateOpened: z.string().optional().nullable(),
+  statusUpdated: z.string().optional().nullable(),
+  accountType: z.string().optional().nullable(),
+  status: z.string().optional().nullable(),
+  balance: z.string().optional().nullable(),
+  creditLimit: z.string().optional().nullable(),
+  creditUsage: z.string().optional().nullable(),
+  balanceUpdated: z.string().optional().nullable(),
+  originalBalance: z.string().optional().nullable(),
+  paidOff: z.string().optional().nullable(),
+  monthlyPayment: z.string().optional().nullable(),
+  lastPaymentDate: z.string().optional().nullable(),
+  terms: z.string().optional().nullable(),
+  creditAccountCategory: accountCategoryEnum.optional().nullable(),
+  dispute: z.string().optional().nullable(),
+});
 
 const clientProfileInput = z.object({
   firstName: z.string().min(1),
@@ -825,6 +896,13 @@ export const appRouter = router({
         await updateCreditReport(id, data as any);
         return { success: true };
       }),
+    importCreditSummary: adminProcedure
+      .input(creditSummaryImportSchema)
+      .mutation(async ({ input }) => {
+        const { reportId, accountsEverLate: _accountsEverLate, ...data } = input;
+        await updateCreditReport(reportId, data as any);
+        return { success: true };
+      }),
 
         deleteCreditReport: adminProcedure
       .input(z.object({ id: z.number() }))
@@ -843,7 +921,9 @@ export const appRouter = router({
         inquiredOn: z.string().optional().nullable(),
         businessType: z.string().optional().nullable(),
         address: z.string().optional().nullable(),
+        cityStateZip: z.string().optional().nullable(),
         contactNumber: z.string().optional().nullable(),
+        scheduledToRemainUntil: z.string().optional().nullable(),
         note: z.string().optional().nullable(),
       }))
       .mutation(async ({ input }) => {
@@ -857,7 +937,9 @@ export const appRouter = router({
         inquiredOn: z.string().optional().nullable(),
         businessType: z.string().optional().nullable(),
         address: z.string().optional().nullable(),
+        cityStateZip: z.string().optional().nullable(),
         contactNumber: z.string().optional().nullable(),
+        scheduledToRemainUntil: z.string().optional().nullable(),
         note: z.string().optional().nullable(),
       }))
       .mutation(async ({ input }) => {
@@ -869,6 +951,16 @@ export const appRouter = router({
       .input(z.object({ id: z.number() }))
       .mutation(async ({ input }) => {
         await deleteInquiry(input.id);
+        return { success: true };
+      }),
+    importInquiries: adminProcedure
+      .input(z.object({
+        reportId: z.number(),
+        clientProfileId: z.number(),
+        rows: z.array(creditInquiryImportRowSchema),
+      }))
+      .mutation(async ({ input }) => {
+        await replaceInquiriesForReport(input.reportId, input.clientProfileId, input.rows as any);
         return { success: true };
       }),
 
@@ -941,6 +1033,16 @@ export const appRouter = router({
       .input(z.object({ id: z.number() }))
       .mutation(async ({ input }) => {
         await deleteCreditAccount(input.id);
+        return { success: true };
+      }),
+    importCreditAccounts: adminProcedure
+      .input(z.object({
+        reportId: z.number(),
+        clientProfileId: z.number(),
+        rows: z.array(creditAccountImportRowSchema),
+      }))
+      .mutation(async ({ input }) => {
+        await replaceCreditAccountsForReport(input.reportId, input.clientProfileId, input.rows as any);
         return { success: true };
       }),
 

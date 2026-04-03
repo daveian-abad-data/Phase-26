@@ -99,6 +99,13 @@
       "when": 1772821963731,
       "tag": "0013_workable_the_phantom",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "8",
+      "when": 1743700000000,
+      "tag": "0014_credit_inquiry_fields",
+      "breakpoints": true
     }
   ]
 }

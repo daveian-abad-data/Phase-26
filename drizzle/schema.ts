@@ -285,7 +285,9 @@ export const creditReportInquiries = mysqlTable("credit_report_inquiries", {
   inquiredOn: varchar("inquiredOn", { length: 32 }),  // date string
   businessType: varchar("businessType", { length: 256 }),
   address: text("address"),
+  cityStateZip: varchar("cityStateZip", { length: 256 }),
   contactNumber: varchar("contactNumber", { length: 64 }),
+  scheduledToRemainUntil: varchar("scheduledToRemainUntil", { length: 64 }),
   note: text("note"),
 
   createdAt: timestamp("createdAt").defaultNow().notNull(),
