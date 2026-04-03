@@ -395,15 +395,6 @@ export async function deleteCreditAccount(id: number) {
   await db.delete(creditAccounts).where(eq(creditAccounts.id, id));
 }
 
-export async function replaceCreditAccountsForReport(creditReportId: number, clientProfileId: number, rows: InsertCreditAccount[]) {
-  const db = await getDb();
-  if (!db) throw new Error("Database not available");
-  await db.delete(creditAccounts).where(eq(creditAccounts.creditReportId, creditReportId));
-  if (rows.length > 0) {
-    await db.insert(creditAccounts).values(rows.map((row) => ({ ...row, creditReportId, clientProfileId })));
-  }
-}
-
 // ─── Funding Application helpers ───────────────────────────────────────────
 
 export async function getFundingApplicationsByClientId(clientProfileId: number) {

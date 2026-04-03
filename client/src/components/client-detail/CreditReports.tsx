@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -10,7 +10,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
-import { Loader2, Trash2, Edit2, CreditCard, ChevronDown, ChevronUp, Filter, Plus, ClipboardPaste, Upload } from "lucide-react";
+import { Loader2, Trash2, Edit2, CreditCard, ChevronDown, ChevronUp, Filter, Plus, ClipboardPaste, Download } from "lucide-react";
 import { toast } from "sonner";
 
 interface Props { clientId: number; clientBusinessId?: string | null; }
@@ -167,7 +167,7 @@ const emptyAccount = {
 };
 
 const emptyInquiry = {
-  accountName: "", inquiredOn: "", businessType: "", address: "", cityStateZip: "", contactNumber: "", scheduledToRemainUntil: "", note: "",
+  accountName: "", inquiredOn: "", businessType: "", address: "", contactNumber: "", note: "",
 };
 const groupByCategory = (accounts: any[]) => {
   return {
@@ -179,60 +179,101 @@ const groupByCategory = (accounts: any[]) => {
     Others: accounts.filter((a) => !a.creditAccountCategory || a.creditAccountCategory === "Others"),
   };
 };
+
+const csvEscape = (value: unknown) => {
+  const str = value == null ? "" : String(value);
+  if (/[",\n]/.test(str)) {
+    return `"${str.replace(/"/g, '""')}"`;
+  }
+  return str;
+};
+
+const downloadCsv = (filename: string, headers: string[], rows: (string | number | null | undefined)[][]) => {
+  const csv = [headers.join(","), ...rows.map((row) => row.map(csvEscape).join(","))].join("\n");
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.setAttribute("download", filename);
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+};
+
+const bureauTemplateHeaders = [
+  "Bureau", "Report Date", "FICO Score", "FICO Score Model", "Evaluation", "Open Accounts", "Self Reported Accounts",
+  "Closed Accounts", "Collections Count", "Average Account Age", "Oldest Account", "Credit Usage Percent", "Credit Used",
+  "Credit Limit", "Credit Usage Percent No AU", "Credit Used No AU", "Credit Limit No AU", "Credit Card Debt",
+  "Self Reported Balance", "Loan Debt", "Collections Debt", "Total Debt"
+];
+
+const accountTemplateHeaders = [
+  "Bureau", "Report Date", "Account Name", "Open/Closed", "Account Type", "Status", "Balance", "Credit Limit",
+  "Credit Usage", "Date Opened", "Monthly Payment", "Terms", "Category", "Responsibility", "Account Number",
+  "Status Updated", "Balance Updated", "Original Balance", "Paid Off", "Last Payment Date", "Dispute"
+];
+
 export default function ClientDetailCreditReports({ clientId, clientBusinessId }: Props) {
   const utils = trpc.useUtils();
-
-  const [showReportDialog, setShowReportDialog] = useState(false);
-  const [showAccountDialog, setShowAccountDialog] = useState(false);
-  const [showInquiryDialog, setShowInquiryDialog] = useState(false);
-  const [showBulkPasteDialog, setShowBulkPasteDialog] = useState(false);
-  const [showSummaryImportDialog, setShowSummaryImportDialog] = useState(false);
-  const [showInquiryImportDialog, setShowInquiryImportDialog] = useState(false);
-  const [expandedSummary, setExpandedSummary] = useState(true);
-  const [expandedAccounts, setExpandedAccounts] = useState(true);
-
-  const [bulkPasteText, setBulkPasteText] = useState("");
-  const [summaryPasteText, setSummaryPasteText] = useState("");
-  const [inquiryPasteText, setInquiryPasteText] = useState("");
-
-  const [editingReportId, setEditingReportId] = useState<number | null>(null);
-  const [editingAccountId, setEditingAccountId] = useState<number | null>(null);
-  const [editingInquiryId, setEditingInquiryId] = useState<number | null>(null);
-
-  const [confirmDeleteReportId, setConfirmDeleteReportId] = useState<number | null>(null);
-  const [confirmDeleteAccountId, setConfirmDeleteAccountId] = useState<number | null>(null);
-  const [confirmDeleteInquiryId, setConfirmDeleteInquiryId] = useState<number | null>(null);
-
-  const [reportForm, setReportForm] = useState(emptyReport);
-  const [accountForm, setAccountForm] = useState(emptyAccount);
-  const [inquiryForm, setInquiryForm] = useState(emptyInquiry);
-
-  const [filterBureau, setFilterBureau] = useState<string>("all");
+  const [filterBureau, setFilterBureau] = useState<string>("Experian");
   const [selectedReportId, setSelectedReportId] = useState<number | null>(null);
   const [accountView, setAccountView] = useState<"Open" | "Closed">("Open");
 
   const { data: reports, isLoading: reportsLoading } = trpc.admin.getCreditReports.useQuery({ clientId });
-  const { data: accounts = [], isLoading: accountsLoading } = trpc.admin.getCreditAccounts.useQuery({
-    clientId,
-    creditReportId: selectedReportId ?? undefined,
-  });
+  const { data: rawAccounts, isLoading: accountsLoading } = trpc.admin.getCreditAccounts.useQuery({ clientId });
   const { data: inquiries = [] } = trpc.admin.getInquiries.useQuery(
     { creditReportId: selectedReportId ?? 0 },
     { enabled: !!selectedReportId }
   );
+  const [showReportDialog, setShowReportDialog] = useState(false);
+  const [showAccountDialog, setShowAccountDialog] = useState(false);
+  const [showInquiryDialog, setShowInquiryDialog] = useState(false);
+  const [showBulkPasteDialog, setShowBulkPasteDialog] = useState(false);
+  const [showBulkReportDialog, setShowBulkReportDialog] = useState(false);
+  const [editingReportId, setEditingReportId] = useState<number | null>(null);
+  const [editingAccountId, setEditingAccountId] = useState<number | null>(null);
+  const [editingInquiryId, setEditingInquiryId] = useState<number | null>(null);
+  const [confirmDeleteReportId, setConfirmDeleteReportId] = useState<number | null>(null);
+  const [confirmDeleteAccountId, setConfirmDeleteAccountId] = useState<number | null>(null);
+  const [confirmDeleteInquiryId, setConfirmDeleteInquiryId] = useState<number | null>(null);
+  const [expandedSummary, setExpandedSummary] = useState(true);
+  const [expandedAccounts, setExpandedAccounts] = useState(true);
+  const [bulkPasteText, setBulkPasteText] = useState("");
+  const [bulkReportText, setBulkReportText] = useState("");
+  const [reportForm, setReportForm] = useState({ ...emptyReport });
+  const [accountForm, setAccountForm] = useState({ ...emptyAccount, clientId: clientBusinessId || "" });
+  const [inquiryForm, setInquiryForm] = useState({ ...emptyInquiry });
 
   const filteredReports = useMemo(() => {
     if (!reports) return [];
-    return reports.filter(r => filterBureau === "all" || r.bureau === filterBureau);
+    return reports.filter((r) => !filterBureau || r.bureau === filterBureau);
   }, [reports, filterBureau]);
 
   const bureauOptions = useMemo(() => {
     if (!reports) return [];
-    return Array.from(new Set(reports.map(r => r.bureau).filter(Boolean))) as string[];
+    return Array.from(new Set(reports.map((r) => r.bureau).filter(Boolean))) as string[];
   }, [reports]);
-  
-  const openAccounts = accounts.filter((a: any) => a.openClosed === "Open");
-  const closedAccounts = accounts.filter((a: any) => a.openClosed === "Closed");
+
+  useEffect(() => {
+    if (bureauOptions.length === 0) return;
+    if (!bureauOptions.includes(filterBureau)) {
+      setFilterBureau(bureauOptions[0]);
+      setSelectedReportId(null);
+    }
+  }, [bureauOptions, filterBureau]);
+
+  const accounts = useMemo(() => {
+    const list = rawAccounts ?? [];
+    let next = list.filter((a) => !filterBureau || a.bureau === filterBureau);
+    if (selectedReportId) {
+      next = next.filter((a) => a.creditReportId === selectedReportId);
+    }
+    return next;
+  }, [rawAccounts, filterBureau, selectedReportId]);
+
+  const openAccounts = accounts.filter((a) => a.openClosed === "Open");
+  const closedAccounts = accounts.filter((a) => a.openClosed === "Closed");
 
   const openByCategory = useMemo(() => groupByCategory(openAccounts), [openAccounts]);
   const closedByCategory = useMemo(() => groupByCategory(closedAccounts), [closedAccounts]);
@@ -262,19 +303,6 @@ export default function ClientDetailCreditReports({ clientId, clientBusinessId }
     onSuccess: () => { utils.admin.getCreditAccounts.invalidate({ clientId }); toast.success("Account deleted"); },
     onError: (err) => toast.error(err.message),
   });
-  const importSummaryMutation = trpc.admin.importCreditSummary.useMutation({
-    onSuccess: () => { utils.admin.getCreditReports.invalidate({ clientId }); setShowSummaryImportDialog(false); setSummaryPasteText(""); toast.success("Credit summary imported"); },
-    onError: (err) => toast.error(err.message),
-  });
-  const importAccountsMutation = trpc.admin.importCreditAccounts.useMutation({
-    onSuccess: async () => {
-      await utils.admin.getCreditAccounts.invalidate({ clientId, creditReportId: selectedReportId ?? undefined });
-      setShowBulkPasteDialog(false);
-      setBulkPasteText("");
-      toast.success("Credit accounts imported");
-    },
-    onError: (err) => toast.error(err.message),
-  });
   const createInquiryMutation = trpc.admin.createInquiry.useMutation({
     onSuccess: () => { if (selectedReportId) utils.admin.getInquiries.invalidate({ creditReportId: selectedReportId }); setShowInquiryDialog(false); toast.success("Inquiry added"); },
     onError: (err) => toast.error(err.message),
@@ -287,127 +315,192 @@ export default function ClientDetailCreditReports({ clientId, clientBusinessId }
     onSuccess: () => { if (selectedReportId) utils.admin.getInquiries.invalidate({ creditReportId: selectedReportId }); toast.success("Inquiry deleted"); },
     onError: (err) => toast.error(err.message),
   });
-  const importInquiriesMutation = trpc.admin.importInquiries.useMutation({
-    onSuccess: async () => {
-      if (selectedReportId) await utils.admin.getInquiries.invalidate({ creditReportId: selectedReportId });
-      setShowInquiryImportDialog(false);
-      setInquiryPasteText("");
-      toast.success("Inquiries imported");
-    },
-    onError: (err) => toast.error(err.message),
-  });
 
 
-  const normalizeHeader = (value: string) => value.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
-  const parseDelimitedTable = (raw: string) => {
-    const lines = raw.trim().split(/\r?\n/).filter((line) => line.trim().length > 0);
-    const rows = lines.map((line) => line.split(/\t/).map((v) => v.trim()));
-    return rows;
+  const normalizeHeader = (value: string) => value.toLowerCase().replace(/[^a-z0-9]+/g, "");
+
+  const splitBulkLine = (line: string) => {
+    if (line.includes("	")) {
+      return line.split("	").map((v) => v.trim());
+    }
+    return line.split(",").map((v) => v.trim());
   };
-  const cleanValue = (value?: string) => {
-    const trimmed = (value || "").trim();
-    return trimmed === "" ? null : trimmed;
+
+  const reportHeaderAliases: Record<string, keyof typeof emptyReport> = {
+    bureau: "bureau",
+    reportdate: "reportDate",
+    date: "reportDate",
+    ficoscore: "ficoScore",
+    score: "ficoScore",
+    ficoscoremodel: "ficoScoreModel",
+    scoremodel: "ficoScoreModel",
+    evaluation: "evaluation",
+    openaccounts: "openAccounts",
+    selfreportedaccounts: "selfReportedAccounts",
+    closedaccounts: "closedAccounts",
+    collectionscount: "collectionsCount",
+    averageaccountage: "averageAccountAge",
+    oldestaccount: "oldestAccount",
+    creditusagepercent: "creditUsagePercent",
+    creditused: "creditUsed",
+    creditlimit: "creditLimit",
+    creditusagepercentnoau: "creditUsagePercentNoAU",
+    creditusednoau: "creditUsedNoAU",
+    creditlimitnoau: "creditLimitNoAU",
+    creditcarddebt: "creditCardDebt",
+    selfreportedbalance: "selfReportedBalance",
+    loandebt: "loanDebt",
+    collectionsdebt: "collectionsDebt",
+    totaldebt: "totalDebt",
+    reportpersonname: "reportPersonName",
+    personname: "reportPersonName",
+    reportalsoknownas: "reportAlsoKnownAs",
+    alsoknownas: "reportAlsoKnownAs",
+    reportyearofbirth: "reportYearOfBirth",
+    yearofbirth: "reportYearOfBirth",
+    reportaddresses: "reportAddresses",
+    addresses: "reportAddresses",
+    reportemployers: "reportEmployers",
+    employers: "reportEmployers",
   };
-  const mapCategory = (value?: string): Category => {
-    const v = (value || "").toLowerCase();
-    if (v.includes("credit")) return "Cards";
-    if (v.includes("auto")) return "Car";
-    if (v.includes("mortgage") || v.includes("house") || v.includes("real estate") || v.includes("home")) return "House";
-    if (v.includes("secured")) return "Secured Loan";
-    if (v.includes("loan") || v.includes("education") || v.includes("student")) return "Unsecured Loan";
-    return "Others";
+
+  const accountHeaderAliases: Record<string, string> = {
+    bureau: "bureau",
+    reportdate: "reportDate",
+    accountname: "accountName",
+    openclosed: "openClosed",
+    accounttype: "accountType",
+    status: "status",
+    balance: "balance",
+    creditlimit: "creditLimit",
+    creditusage: "creditUsage",
+    dateopened: "dateOpened",
+    monthlypayment: "monthlyPayment",
+    terms: "terms",
+    category: "creditAccountCategory",
+    creditaccountcategory: "creditAccountCategory",
+    responsibility: "responsibility",
+    accountnumber: "accountNumber",
+    statusupdated: "statusUpdated",
+    balanceupdated: "balanceUpdated",
+    originalbalance: "originalBalance",
+    paidoff: "paidOff",
+    lastpaymentdate: "lastPaymentDate",
+    dispute: "dispute",
   };
-  const parseBulkRows = (raw: string) => {
-    const rows = parseDelimitedTable(raw);
-    if (rows.length < 2) return [];
-    const headerMap = rows[0].map(normalizeHeader);
-    const idx = (name: string) => headerMap.findIndex((h) => h === name);
-    const dataRows = rows.slice(1);
+
+  const parseBulkReportRows = (raw: string) => {
+    const lines = raw.trim().split(/\r?\n/).filter(Boolean);
+    if (lines.length === 0) return [];
+    const rows = lines.map(splitBulkLine);
+    const headerMap = rows[0].map((v) => reportHeaderAliases[normalizeHeader(v)] || "");
+    const hasHeader = headerMap.some(Boolean);
+    const dataRows = hasHeader ? rows.slice(1) : rows;
+    const fixedOrder: (keyof typeof emptyReport)[] = [
+      "bureau", "reportDate", "ficoScore", "ficoScoreModel", "evaluation", "openAccounts", "selfReportedAccounts",
+      "closedAccounts", "collectionsCount", "averageAccountAge", "oldestAccount", "creditUsagePercent", "creditUsed",
+      "creditLimit", "creditUsagePercentNoAU", "creditUsedNoAU", "creditLimitNoAU", "creditCardDebt", "selfReportedBalance",
+      "loanDebt", "collectionsDebt", "totalDebt", "reportPersonName", "reportAlsoKnownAs", "reportYearOfBirth", "reportAddresses", "reportEmployers"
+    ];
     return dataRows.map((cols) => {
-      const accountType = cols[idx("account type")] || "";
-      const openClosed = cols[idx("open closed")] || cols[idx("open closed status")] || "Open";
+      const row: Record<string, string> = {};
+      cols.forEach((value, idx) => {
+        const key = hasHeader ? headerMap[idx] : fixedOrder[idx];
+        if (key) row[key] = value;
+      });
+      return row;
+    }).filter((row) => row.bureau || row.reportDate || row.ficoScore);
+  };
+
+  const parseBulkRows = (raw: string) => {
+    const lines = raw.trim().split(/\r?\n/).filter(Boolean);
+    if (lines.length === 0) return [];
+    const rows = lines.map(splitBulkLine);
+    const headerMap = rows[0].map((v) => accountHeaderAliases[normalizeHeader(v)] || "");
+    const hasHeader = headerMap.some(Boolean);
+    const dataRows = hasHeader ? rows.slice(1) : rows;
+    const fixedOrder = ["accountName", "openClosed", "accountType", "status", "balance", "creditLimit", "creditUsage", "dateOpened", "monthlyPayment", "terms"];
+    return dataRows.map((cols) => {
+      const row: Record<string, string> = {};
+      cols.forEach((value, idx) => {
+        const key = hasHeader ? headerMap[idx] : fixedOrder[idx];
+        if (key) row[key] = value;
+      });
       return {
-        bureau: cleanValue(cols[idx("bureau")]),
-        reportDate: cleanValue(cols[idx("report date")]),
-        accountName: cleanValue(cols[idx("account name")]),
-        openClosed: cleanValue(openClosed) || "Open",
-        responsibility: cleanValue(cols[idx("responsibility")]),
-        accountNumber: cleanValue(cols[idx("account number")]),
-        dateOpened: cleanValue(cols[idx("date opened")]),
-        statusUpdated: cleanValue(cols[idx("status updated")]),
-        accountType: cleanValue(accountType),
-        status: cleanValue(cols[idx("status")]),
-        balance: cleanValue(cols[idx("balance")]),
-        creditLimit: cleanValue(cols[idx("credit limit")]),
-        creditUsage: cleanValue(cols[idx("credit usage")]),
-        balanceUpdated: cleanValue(cols[idx("balance updated")]),
-        originalBalance: cleanValue(cols[idx("original balance")]),
-        paidOff: cleanValue(cols[idx("paid off")]),
-        monthlyPayment: cleanValue(cols[idx("monthly payment")]),
-        lastPaymentDate: cleanValue(cols[idx("last payment date")]),
-        terms: cleanValue(cols[idx("terms")]),
-        creditAccountCategory: mapCategory(accountType),
-        dispute: cleanValue(cols[idx("dispute")]),
+        bureau: row.bureau || "",
+        reportDate: row.reportDate || "",
+        accountName: row.accountName || "",
+        openClosed: row.openClosed || "Open",
+        accountType: row.accountType || "",
+        status: row.status || "",
+        balance: row.balance || "",
+        creditLimit: row.creditLimit || "",
+        creditUsage: row.creditUsage || "",
+        dateOpened: row.dateOpened || "",
+        monthlyPayment: row.monthlyPayment || "",
+        terms: row.terms || "",
+        creditAccountCategory: row.creditAccountCategory || "Others",
+        responsibility: row.responsibility || "Individual",
+        accountNumber: row.accountNumber || "",
+        statusUpdated: row.statusUpdated || "",
+        balanceUpdated: row.balanceUpdated || "",
+        originalBalance: row.originalBalance || "",
+        paidOff: row.paidOff || "",
+        lastPaymentDate: row.lastPaymentDate || "",
+        dispute: row.dispute || "",
       };
     }).filter((row) => row.accountName);
   };
 
-  const parseSummaryImport = (raw: string) => {
-    const rows = parseDelimitedTable(raw);
-    if (rows.length < 2) return null;
-    const headerMap = rows[0].map(normalizeHeader);
-    const values = rows[1];
-    const idx = (aliases: string[]) => headerMap.findIndex((h) => aliases.includes(h));
-    const pick = (...aliases: string[]) => cleanValue(values[idx(aliases)]);
-    const pickInt = (...aliases: string[]) => {
-      const value = pick(...aliases);
-      if (!value) return null;
-      const n = parseInt(value.replace(/[^0-9-]/g, ""), 10);
-      return Number.isFinite(n) ? n : null;
-    };
-    return {
-      bureau: pick("credit union", "bureau"),
-      ficoScore: pickInt("fico score"),
-      evaluation: pick("assessment", "evaluation") as any,
-      reportDate: pick("date credit report generated", "report date"),
-      ficoScoreModel: pick("fico score model"),
-      openAccounts: pickInt("open accounts"),
-      selfReportedAccounts: pickInt("self reported accounts"),
-      closedAccounts: pickInt("closed accounts"),
-      collectionsCount: pickInt("collections"),
-      creditUsagePercent: pick("credit used"),
-      creditUsed: pick("credit used amount", "credit used total"),
-      creditLimit: pick("credit limit"),
-      creditCardDebt: pick("credit card and credit line", "credit card debt", "credit card and credit line debt"),
-      selfReportedBalance: pick("self reported account balance"),
-      loanDebt: pick("loan debt"),
-      collectionsDebt: pick("collections debt"),
-      totalDebt: pick("total debt"),
-      averageAccountAge: pick("average account age"),
-      oldestAccount: pick("oldest account"),
-      reportPersonName: pick("name", "client name"),
-      reportAlsoKnownAs: pick("also known as"),
-      reportYearOfBirth: pick("year of birth"),
-      reportAddresses: pick("addresses"),
-      reportEmployers: pick("employers"),
-    };
-  };
-
-  const parseInquiryRows = (raw: string) => {
-    const rows = parseDelimitedTable(raw);
-    if (rows.length < 2) return [];
-    const headerMap = rows[0].map(normalizeHeader);
-    const idx = (name: string) => headerMap.findIndex((h) => h === name);
-    return rows.slice(1).map((cols) => ({
-      accountName: cleanValue(cols[idx("inquiry name")]) || cleanValue(cols[idx("account name")]),
-      inquiredOn: cleanValue(cols[idx("inquiry date")]) || cleanValue(cols[idx("inquired on")]),
-      businessType: cleanValue(cols[idx("business type")]),
-      address: cleanValue(cols[idx("address")]),
-      cityStateZip: cleanValue(cols[idx("city state zip")]),
-      contactNumber: cleanValue(cols[idx("phone")]) || cleanValue(cols[idx("contact number")]),
-      scheduledToRemainUntil: cleanValue(cols[idx("scheduled to continue on record until")]) || cleanValue(cols[idx("scheduled to remain until")]),
-      note: null,
-    })).filter((row) => row.accountName);
+  const handleBulkReportImport = async () => {
+    const rows = parseBulkReportRows(bulkReportText);
+    if (rows.length === 0) {
+      toast.error("Paste at least one bureau summary row.");
+      return;
+    }
+    for (const row of rows) {
+      const existing = reports?.find((report) =>
+        (row.bureau ? (report.bureau || "").toLowerCase() === row.bureau.toLowerCase() : true) &&
+        (row.reportDate ? (report.reportDate || "") === row.reportDate : true)
+      );
+      const payload = {
+        bureau: row.bureau || null,
+        reportDate: row.reportDate || null,
+        ficoScore: row.ficoScore ? parseInt(row.ficoScore) : null,
+        ficoScoreModel: row.ficoScoreModel || null,
+        evaluation: (row.evaluation as Evaluation) || null,
+        openAccounts: row.openAccounts ? parseInt(row.openAccounts) : null,
+        selfReportedAccounts: row.selfReportedAccounts ? parseInt(row.selfReportedAccounts) : null,
+        closedAccounts: row.closedAccounts ? parseInt(row.closedAccounts) : null,
+        collectionsCount: row.collectionsCount ? parseInt(row.collectionsCount) : null,
+        averageAccountAge: row.averageAccountAge || null,
+        oldestAccount: row.oldestAccount || null,
+        creditUsagePercent: row.creditUsagePercent || null,
+        creditUsed: row.creditUsed || null,
+        creditLimit: row.creditLimit || null,
+        creditUsagePercentNoAU: row.creditUsagePercentNoAU || null,
+        creditUsedNoAU: row.creditUsedNoAU || null,
+        creditLimitNoAU: row.creditLimitNoAU || null,
+        creditCardDebt: row.creditCardDebt || null,
+        selfReportedBalance: row.selfReportedBalance || null,
+        loanDebt: row.loanDebt || null,
+        collectionsDebt: row.collectionsDebt || null,
+        totalDebt: row.totalDebt || null,
+        reportPersonName: row.reportPersonName || null,
+        reportAlsoKnownAs: row.reportAlsoKnownAs || null,
+        reportYearOfBirth: row.reportYearOfBirth || null,
+        reportAddresses: row.reportAddresses || null,
+        reportEmployers: row.reportEmployers || null,
+      };
+      if (existing) {
+        await updateReportMutation.mutateAsync({ id: existing.id, ...payload });
+      } else {
+        await createReportMutation.mutateAsync({ clientProfileId: clientId, ...payload });
+      }
+    }
+    setBulkReportText("");
+    setShowBulkReportDialog(false);
+    toast.success(`Imported ${rows.length} bureau row${rows.length > 1 ? "s" : ""}`);
   };
 
   const handleBulkPasteImport = async () => {
@@ -421,41 +514,72 @@ export default function ClientDetailCreditReports({ clientId, clientBusinessId }
       return;
     }
     const selectedReport = reports?.find((r) => r.id === selectedReportId);
-    await importAccountsMutation.mutateAsync({
-      reportId: selectedReportId,
-      clientProfileId: clientId,
-      rows: rows.map((row) => ({
-        ...row,
-        bureau: row.bureau || selectedReport?.bureau || filterBureau || null,
-        reportDate: row.reportDate || selectedReport?.reportDate || null,
-      })),
-    });
+    for (const row of rows) {
+      const matchedReport = selectedReport || reports?.find((report) =>
+        (!!row.bureau ? (report.bureau || "").toLowerCase() === row.bureau.toLowerCase() : true) &&
+        (!!row.reportDate ? (report.reportDate || "") === row.reportDate : true)
+      );
+      await addAccountMutation.mutateAsync({
+        clientProfileId: clientId,
+        creditReportId: matchedReport?.id ?? selectedReportId,
+        bureau: matchedReport?.bureau || row.bureau || filterBureau || null,
+        reportDate: matchedReport?.reportDate || row.reportDate || null,
+        accountName: row.accountName,
+        openClosed: row.openClosed,
+        accountType: row.accountType,
+        status: row.status,
+        balance: row.balance || null,
+        creditLimit: row.creditLimit || null,
+        creditUsage: row.creditUsage || null,
+        dateOpened: row.dateOpened || null,
+        monthlyPayment: row.monthlyPayment || null,
+        terms: row.terms || null,
+        creditAccountCategory: (row.creditAccountCategory as Category) || "Others",
+        responsibility: row.responsibility || null,
+        accountNumber: row.accountNumber || null,
+        statusUpdated: row.statusUpdated || null,
+        balanceUpdated: row.balanceUpdated || null,
+        originalBalance: row.originalBalance || null,
+        paidOff: row.paidOff || null,
+        lastPaymentDate: row.lastPaymentDate || null,
+        dispute: row.dispute || null,
+      });
+    }
+    setBulkPasteText("");
+    setShowBulkPasteDialog(false);
+    toast.success(`Imported ${rows.length} account row${rows.length > 1 ? "s" : ""}`);
   };
 
-  const handleSummaryImport = async () => {
-    if (!selectedReportId) {
-      toast.error("Select a bureau report first before importing a summary.");
-      return;
-    }
-    const payload = parseSummaryImport(summaryPasteText);
-    if (!payload) {
-      toast.error("Paste a header row and one summary data row.");
-      return;
-    }
-    await importSummaryMutation.mutateAsync({ reportId: selectedReportId, ...payload });
+  const exportBureauData = () => {
+    const rows = (filteredReports.length > 0 ? filteredReports : (reports ?? [])).map((report) => [
+      report.bureau, report.reportDate, report.ficoScore, report.ficoScoreModel, report.evaluation, report.openAccounts,
+      report.selfReportedAccounts, report.closedAccounts, report.collectionsCount, report.averageAccountAge, report.oldestAccount,
+      report.creditUsagePercent, report.creditUsed, report.creditLimit, report.creditUsagePercentNoAU, report.creditUsedNoAU,
+      report.creditLimitNoAU, report.creditCardDebt, report.selfReportedBalance, report.loanDebt, report.collectionsDebt, report.totalDebt,
+    ]);
+    downloadCsv(`credit-bureau-data-${filterBureau || 'all'}.csv`, bureauTemplateHeaders, rows);
   };
 
-  const handleInquiryImport = async () => {
-    if (!selectedReportId) {
-      toast.error("Select a bureau report first before importing inquiries.");
-      return;
-    }
-    const rows = parseInquiryRows(inquiryPasteText);
-    if (rows.length === 0) {
-      toast.error("Paste at least one inquiry row.");
-      return;
-    }
-    await importInquiriesMutation.mutateAsync({ reportId: selectedReportId, clientProfileId: clientId, rows });
+  const exportAccountData = () => {
+    const rows = accounts.map((account) => [
+      account.bureau, account.reportDate, account.accountName, account.openClosed, account.accountType, account.status,
+      account.balance, account.creditLimit, account.creditUsage, account.dateOpened, account.monthlyPayment, account.terms,
+      account.creditAccountCategory, account.responsibility, account.accountNumber, account.statusUpdated, account.balanceUpdated,
+      account.originalBalance, account.paidOff, account.lastPaymentDate, account.dispute,
+    ]);
+    downloadCsv(`credit-account-data-${filterBureau || 'bureau'}.csv`, accountTemplateHeaders, rows);
+  };
+
+  const downloadBureauTemplate = () => {
+    downloadCsv('credit-bureau-template.csv', bureauTemplateHeaders, [[
+      'Experian', '2026-02-26', '806', 'FICO Score 8', 'Very Good', '14', '2', '12', '0', '8 years', '12 years', '12%', '12000', '50000', '', '', '', '453569', '0', '0', '0', '453569'
+    ]]);
+  };
+
+  const downloadAccountTemplate = () => {
+    downloadCsv('credit-account-template.csv', accountTemplateHeaders, [[
+      filterBureau || 'Experian', '2026-02-26', 'Bank of America', 'Open', 'Credit Card', 'Current', '4019', '5200', '77%', '2020-10-20', '125', 'REV', 'Cards', 'Individual', '', '', '', '', '', '', ''
+    ]]);
   };
 
   const openEditReport = (r: any) => {
@@ -514,8 +638,8 @@ export default function ClientDetailCreditReports({ clientId, clientBusinessId }
     setEditingInquiryId(inq.id);
     setInquiryForm({
       accountName: inq.accountName || "", inquiredOn: inq.inquiredOn || "",
-      businessType: inq.businessType || "", address: inq.address || "", cityStateZip: inq.cityStateZip || "",
-      contactNumber: inq.contactNumber || "", scheduledToRemainUntil: inq.scheduledToRemainUntil || "", note: inq.note || "",
+      businessType: inq.businessType || "", address: inq.address || "",
+      contactNumber: inq.contactNumber || "", note: inq.note || "",
     });
     setShowInquiryDialog(true);
   };
@@ -581,9 +705,7 @@ export default function ClientDetailCreditReports({ clientId, clientBusinessId }
       inquiredOn: inquiryForm.inquiredOn || null,
       businessType: inquiryForm.businessType || null,
       address: inquiryForm.address || null,
-      cityStateZip: inquiryForm.cityStateZip || null,
       contactNumber: inquiryForm.contactNumber || null,
-      scheduledToRemainUntil: inquiryForm.scheduledToRemainUntil || null,
       note: inquiryForm.note || null,
     };
     if (editingInquiryId) updateInquiryMutation.mutate({ id: editingInquiryId, ...payload });
@@ -715,8 +837,7 @@ export default function ClientDetailCreditReports({ clientId, clientBusinessId }
             <Label className="text-xs text-muted-foreground whitespace-nowrap">Bureaus</Label>
           </div>
           <div className="flex flex-wrap gap-2">
-            <Button size="sm" variant={filterBureau === "all" ? "default" : "outline"} onClick={() => { setFilterBureau("all"); setSelectedReportId(null); }}>All</Button>
-            {["Experian", "Transunion", "Equifax"].map((bureau) => (
+            {(["Experian", "Transunion", "Equifax"].filter((bureau) => bureauOptions.length === 0 || bureauOptions.includes(bureau))).map((bureau) => (
               <Button key={bureau} size="sm" variant={filterBureau === bureau ? "default" : "outline"} onClick={() => { setFilterBureau(bureau); setSelectedReportId(null); }}>{bureau}</Button>
             ))}
           </div>
@@ -732,16 +853,20 @@ export default function ClientDetailCreditReports({ clientId, clientBusinessId }
               <CardTitle className="text-base">Credit Report Summary</CardTitle>
               {expandedSummary ? <ChevronUp className="w-4 h-4 text-muted-foreground" /> : <ChevronDown className="w-4 h-4 text-muted-foreground" />}
             </button>
-            {selectedReportId && (
-              <div className="flex items-center gap-2">
-                <Button onClick={() => setShowSummaryImportDialog(true)} size="sm" variant="outline" className="gap-1 h-8">
-                  <Upload className="w-3.5 h-3.5" /> Import Summary
-                </Button>
-                <Button onClick={() => setShowInquiryImportDialog(true)} size="sm" variant="outline" className="gap-1 h-8">
-                  <Upload className="w-3.5 h-3.5" /> Import Inquiries
-                </Button>
-              </div>
-            )}
+            <div className="flex items-center gap-2 flex-wrap justify-end">
+              <Button onClick={downloadBureauTemplate} size="sm" variant="outline" className="gap-1 h-8">
+                <Download className="w-3.5 h-3.5" /> Bureau Template
+              </Button>
+              <Button onClick={exportBureauData} size="sm" variant="outline" className="gap-1 h-8">
+                <Download className="w-3.5 h-3.5" /> Export Bureau Data
+              </Button>
+              <Button onClick={() => setShowBulkReportDialog(true)} size="sm" variant="outline" className="gap-1 h-8">
+                <ClipboardPaste className="w-3.5 h-3.5" /> Import Bureau Data
+              </Button>
+              <Button onClick={() => { setEditingReportId(null); setReportForm({ ...emptyReport }); setShowReportDialog(true); }} size="sm" className="gap-1 h-8">
+                <Plus className="w-3.5 h-3.5" /> Add Report
+              </Button>
+            </div>
           </div>
         </CardHeader>
         {expandedSummary && (
@@ -758,7 +883,15 @@ export default function ClientDetailCreditReports({ clientId, clientBusinessId }
                         <span className="text-slate-500 text-xl font-bold tracking-wide">Credit Bureau</span>
                         <span className="text-slate-600 text-xs">No Date</span>
                       </div>
-                      <span className="text-slate-600 text-xs italic">No report added yet</span>
+                      <div className="flex items-center gap-2">
+                        <span className="text-slate-600 text-xs italic">No report added yet</span>
+                        <Button size="sm" variant="outline" className="h-7 gap-1 bg-white/10 border-white/20 text-white hover:bg-white/20" onClick={() => setShowBulkReportDialog(true)}>
+                          <ClipboardPaste className="w-3 h-3" /> Import
+                        </Button>
+                        <Button size="sm" className="h-7 gap-1" onClick={() => { setEditingReportId(null); setReportForm({ ...emptyReport }); setShowReportDialog(true); }}>
+                          <Plus className="w-3 h-3" /> Add Report
+                        </Button>
+                      </div>
                     </div>
                     <div className="flex items-center justify-center gap-10 px-5 py-5">
                       <div className="flex flex-col items-center gap-1">
@@ -995,9 +1128,7 @@ export default function ClientDetailCreditReports({ clientId, clientBusinessId }
                               {inq.inquiredOn && <p className="text-muted-foreground">Inquired: {inq.inquiredOn}</p>}
                               {inq.businessType && <p className="text-muted-foreground">Type: {inq.businessType}</p>}
                               {inq.address && <p className="text-muted-foreground">{inq.address}</p>}
-                              {inq.cityStateZip && <p className="text-muted-foreground">{inq.cityStateZip}</p>}
                               {inq.contactNumber && <p className="text-muted-foreground">{inq.contactNumber}</p>}
-                              {inq.scheduledToRemainUntil && <p className="text-muted-foreground">Remains until: {inq.scheduledToRemainUntil}</p>}
                               {inq.note && <p className="text-muted-foreground italic">{inq.note}</p>}
                             </div>
                           ))}
@@ -1022,7 +1153,7 @@ export default function ClientDetailCreditReports({ clientId, clientBusinessId }
               {selectedReportId && <Badge variant="outline" className="text-xs text-primary border-primary">Filtered by report</Badge>}
               {expandedAccounts ? <ChevronUp className="w-4 h-4 text-muted-foreground" /> : <ChevronDown className="w-4 h-4 text-muted-foreground" />}
             </button>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap justify-end">
               <div className="flex rounded-lg overflow-hidden border text-xs font-medium">
                 <button
                   className={`px-4 py-1.5 transition-colors ${accountView === "Open" ? "bg-[#D6EED7] text-black font-bold" : "bg-white text-muted-foreground hover:bg-muted/40"}`}
@@ -1037,18 +1168,22 @@ export default function ClientDetailCreditReports({ clientId, clientBusinessId }
                   Closed ({closedAccounts.length})
                 </button>
               </div>
+              <Button onClick={downloadAccountTemplate} size="sm" variant="outline" className="gap-1 h-8">
+                <Download className="w-3.5 h-3.5" /> Account Template
+              </Button>
+              <Button onClick={exportAccountData} size="sm" variant="outline" className="gap-1 h-8">
+                <Download className="w-3.5 h-3.5" /> Export Account Data
+              </Button>
               <Button onClick={() => setShowBulkPasteDialog(true)} size="sm" variant="outline" className="gap-1 h-8">
-                <ClipboardPaste className="w-3.5 h-3.5" /> Import Accounts
+                <ClipboardPaste className="w-3.5 h-3.5" /> Import Account Data
               </Button>
               <Button onClick={openNewAccount} size="sm" className="gap-1 h-8">
                 <Plus className="w-3.5 h-3.5" /> Add Account
               </Button>
             </div>
           </div>
-          {!selectedReportId ? (
+          {!selectedReportId && (
             <p className="text-xs text-muted-foreground mt-1">Click a report above to filter accounts by that report, or view all accounts below.</p>
-          ) : (
-            <p className="text-xs text-muted-foreground mt-1">Imports replace backend data for the currently selected report only.</p>
           )}
         </CardHeader>
         {expandedAccounts && (
@@ -1072,21 +1207,54 @@ export default function ClientDetailCreditReports({ clientId, clientBusinessId }
       <Dialog open={showBulkPasteDialog} onOpenChange={setShowBulkPasteDialog}>
         <DialogContent className="max-w-3xl">
           <DialogHeader>
-            <DialogTitle>Paste Credit Account Rows</DialogTitle>
+            <DialogTitle>Import Credit Account Data</DialogTitle>
           </DialogHeader>
           <div className="space-y-3 py-2">
-            <p className="text-sm text-muted-foreground">Select a bureau report first, then paste the copied account table from Excel or Google Sheets. The import replaces the existing accounts for the selected report only. Include the spreadsheet header row.</p>
+            <div className="flex gap-2 flex-wrap">
+              <Button type="button" variant="outline" size="sm" className="gap-1" onClick={downloadAccountTemplate}><Download className="w-3.5 h-3.5" /> Account Template</Button>
+              <Button type="button" variant="outline" size="sm" className="gap-1" onClick={exportAccountData}><Download className="w-3.5 h-3.5" /> Export Account Data</Button>
+            </div>
+            <p className="text-sm text-muted-foreground">Paste account rows from Excel or CSV. Use Export Account Data or Account Template to get the exact format. If you include Bureau + Report Date, the importer will match the right report automatically; otherwise it uses the currently selected report.</p>
             <Textarea
-  rows={12}
-  value={bulkPasteText}
-  onChange={(e) => setBulkPasteText(e.target.value)}
-  placeholder={`Empower Classification	Account name	Account number	Date opened	Open/closed	Status updated	Account type	Status	Balance	Credit Limit	Credit Usage	Balance updated	Original balance	Paid off	Monthly payment	Last Payment Date	Terms	Responsibility	Dispute
-Cards	Bank of America	XXXX1234	1/7/2026	Open	3/19/2026	Credit Card	Current	$39.00	$16000.00	0%	3/19/2026		54%	$39.00	1/22/2026	Revolving	Individual	`}
-/>
+              rows={12}
+              value={bulkPasteText}
+              onChange={(e) => setBulkPasteText(e.target.value)}
+              placeholder={`Paste account rows here.
+
+Tip: click Account Template or Export Account Data for the exact CSV format.`}
+            />
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowBulkPasteDialog(false)}>Cancel</Button>
-            <Button onClick={handleBulkPasteImport} disabled={importAccountsMutation.isPending}>{importAccountsMutation.isPending && <Loader2 className="w-4 h-4 animate-spin mr-2" />}Import Accounts</Button>
+            <Button onClick={handleBulkPasteImport} disabled={addAccountMutation.isPending}>Import Account Data</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showBulkReportDialog} onOpenChange={setShowBulkReportDialog}>
+        <DialogContent className="max-w-4xl">
+          <DialogHeader>
+            <DialogTitle>Import Credit Bureau Data</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3 py-2">
+            <div className="flex gap-2 flex-wrap">
+              <Button type="button" variant="outline" size="sm" className="gap-1" onClick={downloadBureauTemplate}><Download className="w-3.5 h-3.5" /> Bureau Template</Button>
+              <Button type="button" variant="outline" size="sm" className="gap-1" onClick={exportBureauData}><Download className="w-3.5 h-3.5" /> Export Bureau Data</Button>
+            </div>
+            <p className="text-sm text-muted-foreground">Paste bureau summary rows from Excel or CSV. Use Export Bureau Data or Bureau Template to get the exact column format. If Bureau + Report Date match an existing report, that report will be updated; otherwise a new report will be created.</p>
+            <Textarea
+              rows={12}
+              value={bulkReportText}
+              onChange={(e) => setBulkReportText(e.target.value)}
+              placeholder={`Paste bureau rows here.
+
+Tip: click Bureau Template or Export Bureau Data for the exact CSV format.`}
+            />
+            <p className="text-xs text-muted-foreground">Recommended: download Bureau Template first, fill it in Excel, then paste or import it back here. Optional columns such as Self Reported Accounts, Age metrics, No-AU metrics, Addresses, and Employers are also supported.</p>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowBulkReportDialog(false)}>Cancel</Button>
+            <Button onClick={handleBulkReportImport} disabled={createReportMutation.isPending || updateReportMutation.isPending}>Import Bureau Data</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -1282,46 +1450,6 @@ Cards	Bank of America	XXXX1234	1/7/2026	Open	3/19/2026	Credit Card	Current	$39.0
         </DialogContent>
       </Dialog>
 
-      <Dialog open={showSummaryImportDialog} onOpenChange={setShowSummaryImportDialog}>
-        <DialogContent className="max-w-3xl">
-          <DialogHeader>
-            <DialogTitle>Import Credit Summary</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-3 py-2">
-            <p className="text-sm text-muted-foreground">Paste the summary spreadsheet with the header row and one data row. This updates the selected report only and keeps the page layout unchanged.</p>
-            <Textarea value={summaryPasteText} onChange={(e) => setSummaryPasteText(e.target.value)} rows={12} placeholder={"Client Name	Credit Union	FICO Score	Assessment	...
-Jane Doe	Experian	720	Good	..."} className="font-mono text-xs" />
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowSummaryImportDialog(false)}>Cancel</Button>
-            <Button onClick={handleSummaryImport} disabled={importSummaryMutation.isPending}>
-              {importSummaryMutation.isPending && <Loader2 className="w-4 h-4 animate-spin mr-2" />}
-              Import Summary
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      <Dialog open={showInquiryImportDialog} onOpenChange={setShowInquiryImportDialog}>
-        <DialogContent className="max-w-3xl">
-          <DialogHeader>
-            <DialogTitle>Import Inquiries</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-3 py-2">
-            <p className="text-sm text-muted-foreground">Paste the inquiries table copied from Excel or Google Sheets. The import replaces existing inquiries for the selected report only.</p>
-            <Textarea value={inquiryPasteText} onChange={(e) => setInquiryPasteText(e.target.value)} rows={12} placeholder={"Inquiry Name	Inquiry Date	Business Type	Address	City State ZIP	Phone	Scheduled to Continue on Record Until
-SOFI BANK NA	12/12/2025	All Banks - non specific	2750 E Cottonwood Pkwy S	Sandy, UT 84070	(855) 456-7634	Jan 2028"} className="font-mono text-xs" />
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowInquiryImportDialog(false)}>Cancel</Button>
-            <Button onClick={handleInquiryImport} disabled={importInquiriesMutation.isPending}>
-              {importInquiriesMutation.isPending && <Loader2 className="w-4 h-4 animate-spin mr-2" />}
-              Import Inquiries
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
       {/* Inquiry Dialog */}
       <Dialog open={showInquiryDialog} onOpenChange={setShowInquiryDialog}>
         <DialogContent className="max-w-lg max-h-[80vh] overflow-y-auto">
@@ -1329,7 +1457,7 @@ SOFI BANK NA	12/12/2025	All Banks - non specific	2750 E Cottonwood Pkwy S	Sandy,
             <DialogTitle>{editingInquiryId ? "Edit Inquiry" : "Add Inquiry"}</DialogTitle>
           </DialogHeader>
           <div className="grid grid-cols-2 gap-3 py-2">
-            {([ ["Account Name", "accountName", "SOFI BANK NA"], ["Inquired On", "inquiredOn", "Dec 12, 2025"], ["Business Type", "businessType", "All Banks - non specific"], ["Contact Number", "contactNumber", "(855) 456-7634"], ["City / State / ZIP", "cityStateZip", "Sandy, UT 84070"], ["Scheduled to Remain Until", "scheduledToRemainUntil", "Jan 2028"] ] as [string,string,string][]).map(([label, field, ph]) => (
+            {([ ["Account Name", "accountName", "SOFI BANK NA"], ["Inquired On", "inquiredOn", "Dec 12, 2025"], ["Business Type", "businessType", "All Banks - non specific"], ["Contact Number", "contactNumber", "(855) 456-7634"] ] as [string,string,string][]).map(([label, field, ph]) => (
               <div key={field} className="space-y-1">
                 <Label className="text-xs">{label}</Label>
                 <Input value={(inquiryForm as any)[field]} onChange={setI(field)} placeholder={ph} className="h-8 text-sm" />
