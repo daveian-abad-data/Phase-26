@@ -296,65 +296,64 @@ function PersonalInfoTab({ profile }: { profile: any }) {
 
 // ─── Credit Reports Tab ───────────────────────────────────────────────────────
 function CreditReportsTab({ token }: { token: string }) {
-  const [selectedBureau, setSelectedBureau] = useState<"Experian" | "TransUnion" | "Equifax">("Experian");
+  const [filterBureau, setFilterBureau] = useState("all");
+  const [filterDate, setFilterDate] = useState("all");
+  const [selectedReportId, setSelectedReportId] = useState<number | null>(null);
   const [accountView, setAccountView] = useState<"Open" | "Closed">("Open");
+  const [expandedSummary, setExpandedSummary] = useState(true);
+  const [expandedAccounts, setExpandedAccounts] = useState(true);
 
-  const normalizeBureau = (value?: string | null) => {
-    if (!value) return "";
-    const cleaned = value.toLowerCase().replace(/\s+/g, "");
-    if (cleaned === "transunion") return "TransUnion";
-    if (cleaned === "experian") return "Experian";
-    if (cleaned === "equifax") return "Equifax";
-    return "";
-  };
-  const formatMoney = (value?: string | number | null) => {
-    if (value === null || value === undefined || value === "") return "—";
-    const num = typeof value === "number" ? value : Number(String(value).replace(/[$,]/g, ""));
-    return Number.isFinite(num) ? `$${num.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : String(value);
-  };
-  const splitMultiValue = (value?: string | null) => (value || "").split(/\n|\|\||\||;;/).map((part) => part.trim()).filter(Boolean);
-
-  const { data: reports, isLoading: reportsLoading } = trpc.clientAuth.getCreditReports.useQuery({ token }, { enabled: !!token, retry: false });
-  const normalizedReports = useMemo(() => ((reports ?? []) as any[]).map((report) => ({ ...report, normalizedBureau: normalizeBureau(report.bureau) })), [reports]);
-  const selectedReport = useMemo(() => normalizedReports.find((report) => report.normalizedBureau === selectedBureau) ?? null, [normalizedReports, selectedBureau]);
-  useEffect(() => {
-    if (!normalizedReports.length || selectedReport) return;
-    const first = normalizedReports.find((report) => report.normalizedBureau) ?? normalizedReports[0];
-    const normalized = normalizeBureau(first?.bureau);
-    if (normalized) setSelectedBureau(normalized as any);
-  }, [normalizedReports, selectedReport]);
-
+  const { data: reports, isLoading: reportsLoading } = trpc.clientAuth.getCreditReports.useQuery(
+    { token }, { enabled: !!token, retry: false }
+  );
   const { data: accounts, isLoading: accountsLoading } = trpc.clientAuth.getCreditAccounts.useQuery(
-    { token, creditReportId: selectedReport?.id ?? null },
-    { enabled: !!token && !!selectedReport?.id, retry: false },
+    { token, creditReportId: selectedReportId },
+    { enabled: !!token, retry: false }
   );
-  const { data: inquiries, isLoading: inquiriesLoading } = trpc.clientAuth.getInquiries.useQuery(
-    { token, creditReportId: selectedReport?.id ?? 0 },
-    { enabled: !!token && !!selectedReport?.id, retry: false },
+  const { data: inquiries } = trpc.clientAuth.getInquiries.useQuery(
+    { token, creditReportId: selectedReportId! },
+    { enabled: !!token && selectedReportId !== null, retry: false }
   );
 
-  const openAccounts = useMemo(() => ((accounts ?? []) as any[]).filter((row) => (row.openClosed || "").toLowerCase() === "open"), [accounts]);
-  const closedAccounts = useMemo(() => ((accounts ?? []) as any[]).filter((row) => (row.openClosed || "").toLowerCase() === "closed"), [accounts]);
-  const visibleAccounts = accountView === "Open" ? openAccounts : closedAccounts;
+  const bureauOptions = useMemo(() => {
+    if (!reports) return [];
+    return Array.from(new Set((reports as any[]).map((r) => r.bureau).filter(Boolean))) as string[];
+  }, [reports]);
 
-  const summaryItems = [
-    ["FICO Score", selectedReport?.ficoScore],
-    ["Assessment", selectedReport?.evaluation],
-    ["Date Report Generated", selectedReport?.reportDate],
-    ["Open accounts", selectedReport?.openAccounts],
-    ["Self-reported accounts", selectedReport?.selfReportedAccounts],
-    ["Closed accounts", selectedReport?.closedAccounts],
-    ["Collections", selectedReport?.collectionsCount],
-    ["Credit used", formatMoney(selectedReport?.creditUsed)],
-    ["Credit limit", formatMoney(selectedReport?.creditLimit)],
-    ["Credit card and credit line", formatMoney(selectedReport?.creditCardDebt)],
-    ["Self-reported account balance", formatMoney(selectedReport?.selfReportedBalance)],
-    ["Loan debt", formatMoney(selectedReport?.loanDebt)],
-    ["Collections debt", formatMoney(selectedReport?.collectionsDebt)],
-    ["Total debt", formatMoney(selectedReport?.totalDebt)],
-    ["Average account age", selectedReport?.averageAccountAge],
-    ["Oldest account", selectedReport?.oldestAccount],
-  ];
+  const dateOptions = useMemo(() => {
+    if (!reports) return [];
+    return Array.from(new Set((reports as any[]).map((r) => r.reportDate).filter(Boolean))) as string[];
+  }, [reports]);
+
+  const filteredReports = useMemo(() => {
+    if (!reports) return [];
+    return (reports as any[]).filter((r) => {
+      const bureauMatch = filterBureau === "all" || r.bureau === filterBureau;
+      const dateMatch = filterDate === "all" || r.reportDate === filterDate;
+      return bureauMatch && dateMatch;
+    });
+  }, [reports, filterBureau, filterDate]);
+
+  const openAccounts = useMemo(() => ((accounts ?? []) as any[]).filter((a) => a.openClosed === "Open"), [accounts]);
+  const closedAccounts = useMemo(() => ((accounts ?? []) as any[]).filter((a) => a.openClosed === "Closed"), [accounts]);
+
+  const openByCategory = useMemo(() => {
+    const map: Record<Category, any[]> = { "Cards": [], "Car": [], "House": [], "Secured Loan": [], "Unsecured Loan": [], "Others": [] };
+    openAccounts.forEach((a) => { const cat = (a.creditAccountCategory as Category) || "Others"; if (map[cat]) map[cat].push(a); else map["Others"].push(a); });
+    return map;
+  }, [openAccounts]);
+
+  const closedByCategory = useMemo(() => {
+    const map: Record<Category, any[]> = { "Cards": [], "Car": [], "House": [], "Secured Loan": [], "Unsecured Loan": [], "Others": [] };
+    closedAccounts.forEach((a) => { const cat = (a.creditAccountCategory as Category) || "Others"; if (map[cat]) map[cat].push(a); else map["Others"].push(a); });
+    return map;
+  }, [closedAccounts]);
+
+  const isOpen = accountView === "Open";
+  const viewBg = isOpen ? "bg-[#8EBF90]" : "bg-[#D48F8F]";
+  const byCategory = isOpen ? openByCategory : closedByCategory;
+  const cols = isOpen ? OPEN_COLS : CLOSED_COLS;
+  const viewCount = isOpen ? openAccounts.length : closedAccounts.length;
 
   if (reportsLoading) return <div className="flex items-center justify-center h-32"><Loader2 className="w-6 h-6 animate-spin text-primary" /></div>;
 
@@ -362,141 +361,288 @@ function CreditReportsTab({ token }: { token: string }) {
     <div className="space-y-5">
       <Card>
         <CardContent className="pt-4 pb-4">
-          <div className="flex flex-wrap gap-2">
-            {["Experian", "TransUnion", "Equifax"].map((bureau) => (
-              <Button key={bureau} variant={selectedBureau === bureau ? "default" : "outline"} onClick={() => setSelectedBureau(bureau as any)}>{bureau}</Button>
-            ))}
+          <div className="flex flex-wrap items-center gap-3">
+            <Filter className="w-4 h-4 text-muted-foreground shrink-0" />
+            <div className="flex items-center gap-2">
+              <Label className="text-xs text-muted-foreground whitespace-nowrap">Bureau</Label>
+              <Select value={filterBureau} onValueChange={setFilterBureau}>
+                <SelectTrigger className="h-8 w-36 text-xs"><SelectValue placeholder="All Bureaus" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Bureaus</SelectItem>
+                  {bureauOptions.map((b) => <SelectItem key={b} value={b}>{b}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="flex items-center gap-2">
+              <Label className="text-xs text-muted-foreground whitespace-nowrap">Report Date</Label>
+              <Select value={filterDate} onValueChange={setFilterDate}>
+                <SelectTrigger className="h-8 w-40 text-xs"><SelectValue placeholder="All Dates" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Dates</SelectItem>
+                  {dateOptions.map((d) => <SelectItem key={d} value={d}>{d}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            {(filterBureau !== "all" || filterDate !== "all") && (
+              <Button variant="ghost" size="sm" className="h-8 text-xs text-muted-foreground"
+                onClick={() => { setFilterBureau("all"); setFilterDate("all"); setSelectedReportId(null); }}>
+                Clear filters
+              </Button>
+            )}
           </div>
         </CardContent>
       </Card>
 
       <Card>
-        <CardHeader>
-          <CardTitle>{selectedBureau} Credit Summary</CardTitle>
+        <CardHeader className="pb-3">
+          <button className="flex items-center gap-2 text-left" onClick={() => setExpandedSummary(v => !v)}>
+            <CreditCard className="w-5 h-5 text-primary" />
+            <CardTitle className="text-base">Credit Report Summary</CardTitle>
+            {expandedSummary ? <ChevronUp className="w-4 h-4 text-muted-foreground" /> : <ChevronDown className="w-4 h-4 text-muted-foreground" />}
+          </button>
         </CardHeader>
-        <CardContent>
-          {!selectedReport ? <p className="text-sm text-muted-foreground">No report available for this bureau yet.</p> : (
-            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-              {summaryItems.map(([label, value]) => (
-                <div key={String(label)} className="rounded-lg border bg-muted/20 p-3">
-                  <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{label}</p>
-                  <p className="mt-1 text-sm font-semibold">{value ? String(value) : "—"}</p>
+        {expandedSummary && (
+          <CardContent className="space-y-6">
+            {filteredReports.length === 0 && (
+              <p className="text-sm text-muted-foreground italic text-center py-4">
+                {reports && (reports as any[]).length > 0 ? "No reports match the current filters." : "No credit reports available yet."}
+              </p>
+            )}
+            {filteredReports.map((report: any) => {
+              const evalCfg = report.evaluation ? EVALUATION_CONFIG[report.evaluation as Evaluation] : null;
+              const pctOrig = parsePct(report.creditUsagePercent);
+              const pctNoAU = parsePct(report.creditUsagePercentNoAU);
+              const isSelected = selectedReportId === report.id;
+              return (
+                <div key={report.id} className={`border-2 rounded-xl overflow-hidden transition-colors ${isSelected ? "border-primary" : "border-border"}`}>
+                  <div className="relative cursor-pointer" style={{ backgroundColor: "#000" }}
+                    onClick={() => setSelectedReportId(isSelected ? null : report.id)}>
+                    <div className="flex items-center justify-between px-5 pt-4 pb-1">
+                      <div className="flex flex-col gap-0.5">
+                        <span className="text-white text-xl font-bold tracking-wide">{report.bureau || "Credit Bureau"}</span>
+                        <span className="text-slate-400 text-xs">{report.reportDate || "No Date"}</span>
+                        {report.ficoScoreModel && <span className="text-slate-500 text-xs">{report.ficoScoreModel}</span>}
+                      </div>
+                      {isSelected && <Badge variant="default" className="text-xs bg-primary">Viewing accounts</Badge>}
+                    </div>
+                    <div className="flex items-center justify-center gap-10 px-5 py-5">
+                      <div className="flex flex-col items-center gap-1">
+                        <span className="text-slate-400 text-xs uppercase tracking-widest">FICO Score</span>
+                        <span className="text-white font-extrabold" style={{ fontSize: "3.5rem", lineHeight: 1 }}>{report.ficoScore ?? "—"}</span>
+                      </div>
+                      <div className="w-px h-20 bg-white/20" />
+                      <div className="flex flex-col items-center gap-1">
+                        <span className="text-slate-400 text-xs uppercase tracking-widest">Credit Utilization</span>
+                        <PieChart percent={pctOrig} color={evalCfg ? evalCfg.color : "#6B8DD6"} size={90} />
+                      </div>
+                      <div className="w-px h-20 bg-white/20" />
+                      <div className="flex flex-col items-center gap-2">
+                        <span className="text-slate-400 text-xs uppercase tracking-widest">Evaluation</span>
+                        {evalCfg ? (
+                          <div className="rounded-lg px-5 py-2 text-center font-bold text-base" style={{ backgroundColor: evalCfg.bg, color: evalCfg.color, border: `2px solid ${evalCfg.color}` }}>
+                            {evalCfg.label}
+                          </div>
+                        ) : (
+                          <div className="rounded-lg px-5 py-2 text-center text-xs text-slate-400 border border-slate-600">Not Set</div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-3 divide-y md:divide-y-0 md:divide-x border-t">
+                    <div className="p-4 space-y-2">
+                      <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">Account Summary</h4>
+                      {[
+                        ["Open Accounts", report.openAccounts],
+                        ["Self-Reported Accounts", report.selfReportedAccounts],
+                        ["Closed Accounts", report.closedAccounts],
+                        ["Collections", report.collectionsCount],
+                        ["Average Account Age", report.averageAccountAge],
+                        ["Oldest Account Age", report.oldestAccount],
+                      ].map(([label, value]) => (
+                        <div key={String(label)} className="flex justify-between items-center text-sm py-0.5 border-b border-muted/30 last:border-0">
+                          <span className="text-muted-foreground text-xs">{label}</span>
+                          <span className="font-semibold text-xs">{value ?? "—"}</span>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="p-4 space-y-3">
+                      <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">Overall Credit Usage</h4>
+                      <div className="grid grid-cols-2 gap-3">
+                        <div className="space-y-2">
+                          <p className="text-xs font-medium text-center text-muted-foreground">Original Report</p>
+                          <div className="flex justify-center"><PieChart percent={pctOrig} color="#6B8DD6" size={70} /></div>
+                          <div className="space-y-1">
+                            {[["Credit Usage", report.creditUsagePercent], ["Credit Used", fmtMoney(report.creditUsed)], ["Credit Limit", fmtMoney(report.creditLimit)]].map(([l, v]) => (
+                              <div key={String(l)} className="flex justify-between text-xs">
+                                <span className="text-muted-foreground">{l}</span>
+                                <span className="font-semibold">{v || "—"}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                        <div className="space-y-2">
+                          <p className="text-xs font-medium text-center text-muted-foreground">Without Auth. User</p>
+                          <div className="flex justify-center"><PieChart percent={pctNoAU} color="#C0634D" size={70} /></div>
+                          <div className="space-y-1">
+                            {[["Credit Usage", report.creditUsagePercentNoAU], ["Credit Used", fmtMoney(report.creditUsedNoAU)], ["Credit Limit", fmtMoney(report.creditLimitNoAU)]].map(([l, v]) => (
+                              <div key={String(l)} className="flex justify-between text-xs">
+                                <span className="text-muted-foreground">{l}</span>
+                                <span className="font-semibold">{v || "—"}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="p-4 space-y-2">
+                      <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">Debt Summary</h4>
+                      {[
+                        ["Credit Card Debt", fmtMoney(report.creditCardDebt)],
+                        ["Self-Reported Balance", fmtMoney(report.selfReportedBalance)],
+                        ["Loan Debt", fmtMoney(report.loanDebt)],
+                        ["Collections Debt", fmtMoney(report.collectionsDebt)],
+                        ["Total Debt", fmtMoney(report.totalDebt)],
+                      ].map(([label, value]) => (
+                        <div key={String(label)} className="flex justify-between items-center text-sm py-0.5 border-b border-muted/30 last:border-0">
+                          <span className="text-muted-foreground text-xs">{label}</span>
+                          <span className={`text-xs ${label === "Total Debt" ? "text-primary font-bold" : "font-semibold"}`}>{value}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 divide-y md:divide-y-0 md:divide-x border-t">
+                    <div className="p-4 space-y-2">
+                      <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">Personal Information</h4>
+                      {[
+                        ["Name", report.reportPersonName],
+                        ["Also Known As", report.reportAlsoKnownAs],
+                        ["Year of Birth", report.reportYearOfBirth],
+                      ].map(([label, value]) => (
+                        <div key={String(label)} className="flex justify-between items-start text-xs py-0.5 border-b border-muted/30 last:border-0">
+                          <span className="text-muted-foreground shrink-0 mr-2">{label}</span>
+                          <span className="font-medium text-right">{value || "—"}</span>
+                        </div>
+                      ))}
+                      <div className="pt-1">
+                        <p className="text-muted-foreground text-xs mb-1">Addresses</p>
+                        <p className="text-xs font-medium whitespace-pre-wrap">{report.reportAddresses || "—"}</p>
+                      </div>
+                      <div className="pt-1">
+                        <p className="text-muted-foreground text-xs mb-1">Employers</p>
+                        <p className="text-xs font-medium whitespace-pre-wrap">{report.reportEmployers || "—"}</p>
+                      </div>
+                    </div>
+                    <div className="p-4 space-y-2">
+                      <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">Inquiries</h4>
+                      {!isSelected ? (
+                        <p className="text-xs text-muted-foreground italic">Click the report header above to view inquiries for this report.</p>
+                      ) : !inquiries || (inquiries as any[]).length === 0 ? (
+                        <p className="text-xs text-muted-foreground italic">No inquiries recorded for this report.</p>
+                      ) : (
+                        <div className="space-y-2 max-h-64 overflow-y-auto">
+                          {(inquiries as any[]).map((inq) => (
+                            <div key={inq.id} className="border rounded-lg p-2 text-xs space-y-0.5 bg-muted/20">
+                              <span className="font-semibold">{inq.accountName || "Unknown"}</span>
+                              {inq.inquiredOn && <p className="text-muted-foreground">Inquired: {inq.inquiredOn}</p>}
+                              {inq.businessType && <p className="text-muted-foreground">Type: {inq.businessType}</p>}
+                              {inq.address && <p className="text-muted-foreground">{inq.address}</p>}
+                              {inq.contactNumber && <p className="text-muted-foreground">{inq.contactNumber}</p>}
+                              {inq.note && <p className="text-muted-foreground italic">{inq.note}</p>}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
                 </div>
-              ))}
-            </div>
-          )}
-        </CardContent>
+              );
+            })}
+          </CardContent>
+        )}
       </Card>
 
-      <Card>
-        <CardHeader><CardTitle>Personal Information</CardTitle></CardHeader>
-        <CardContent>
-          {!selectedReport ? <p className="text-sm text-muted-foreground">No personal information available.</p> : (
-            <div className="space-y-4">
-              <div className="grid gap-3 md:grid-cols-3">
-                <div className="rounded-lg border p-3"><p className="text-xs uppercase text-muted-foreground">Name</p><p className="mt-1 text-sm font-medium">{selectedReport.reportPersonName || "—"}</p></div>
-                <div className="rounded-lg border p-3"><p className="text-xs uppercase text-muted-foreground">Also Known As</p><p className="mt-1 text-sm font-medium">{selectedReport.reportAlsoKnownAs || "—"}</p></div>
-                <div className="rounded-lg border p-3"><p className="text-xs uppercase text-muted-foreground">Year of Birth</p><p className="mt-1 text-sm font-medium">{selectedReport.reportYearOfBirth || "—"}</p></div>
-              </div>
-              <div className="grid gap-4 lg:grid-cols-2">
-                <div className="rounded-lg border p-4">
-                  <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Addresses</p>
-                  <div className="mt-2 space-y-2">{splitMultiValue(selectedReport.reportAddresses).length ? splitMultiValue(selectedReport.reportAddresses).map((item, index) => <div key={index} className="rounded-md bg-muted/30 p-2 text-sm">{item}</div>) : <p className="text-sm text-muted-foreground">—</p>}</div>
-                </div>
-                <div className="rounded-lg border p-4">
-                  <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Employers</p>
-                  <div className="mt-2 space-y-2">{splitMultiValue(selectedReport.reportEmployers).length ? splitMultiValue(selectedReport.reportEmployers).map((item, index) => <div key={index} className="rounded-md bg-muted/30 p-2 text-sm">{item}</div>) : <p className="text-sm text-muted-foreground">—</p>}</div>
-                </div>
-              </div>
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader><CardTitle>Inquiries</CardTitle></CardHeader>
-        <CardContent>
-          {inquiriesLoading ? <Loader2 className="w-5 h-5 animate-spin text-primary" /> : !selectedReport ? <p className="text-sm text-muted-foreground">No report available for this bureau.</p> : !(inquiries as any[])?.length ? <p className="text-sm text-muted-foreground">No inquiries for this bureau.</p> : (
-            <div className="overflow-x-auto rounded-lg border">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Creditor / Inquiry Name</TableHead>
-                    <TableHead>Inquiry Date</TableHead>
-                    <TableHead>Business Type</TableHead>
-                    <TableHead>Address</TableHead>
-                    <TableHead>City / State / ZIP</TableHead>
-                    <TableHead>Contact</TableHead>
-                    <TableHead>Scheduled to Remain Until</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {(inquiries as any[]).map((inquiry) => (
-                    <TableRow key={inquiry.id}>
-                      <TableCell>{inquiry.accountName || "—"}</TableCell>
-                      <TableCell>{inquiry.inquiredOn || "—"}</TableCell>
-                      <TableCell>{inquiry.businessType || "—"}</TableCell>
-                      <TableCell className="min-w-56 whitespace-normal">{inquiry.address || "—"}</TableCell>
-                      <TableCell>{inquiry.cityStateZip || "—"}</TableCell>
-                      <TableCell>{inquiry.contactNumber || "—"}</TableCell>
-                      <TableCell>{inquiry.scheduledToRemainUntil || "—"}</TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <CardTitle>Accounts</CardTitle>
-            <div className="flex rounded-md border overflow-hidden">
-              <Button variant={accountView === "Open" ? "default" : "ghost"} onClick={() => setAccountView("Open")} className="rounded-none">Open ({openAccounts.length})</Button>
-              <Button variant={accountView === "Closed" ? "default" : "ghost"} onClick={() => setAccountView("Closed")} className="rounded-none">Closed ({closedAccounts.length})</Button>
+      <Card style={{ backgroundColor: accountView === "Open" ? "#8EBF90" : "#D48F8F", transition: "background-color 0.3s ease" }}>
+        <CardHeader className="pb-3">
+          <div className="flex items-center justify-between flex-wrap gap-2">
+            <button className="flex items-center gap-2 text-left" onClick={() => setExpandedAccounts(v => !v)}>
+              <CardTitle className="text-base">Credit Accounts</CardTitle>
+              {accounts && <Badge variant="secondary" className="text-xs">{(accounts as any[]).length} total</Badge>}
+              {selectedReportId && <Badge variant="outline" className="text-xs text-primary border-primary">Filtered by report</Badge>}
+              {expandedAccounts ? <ChevronUp className="w-4 h-4 text-muted-foreground" /> : <ChevronDown className="w-4 h-4 text-muted-foreground" />}
+            </button>
+            <div className="flex rounded-lg overflow-hidden border text-xs font-medium">
+              <button
+                className={`px-4 py-1.5 transition-colors ${accountView === "Open" ? "bg-[#8EBF90] text-white" : "bg-white text-muted-foreground hover:bg-muted/40"}`}
+                onClick={() => setAccountView("Open")}
+              >
+                Open ({openAccounts.length})
+              </button>
+              <button
+                className={`px-4 py-1.5 transition-colors ${accountView === "Closed" ? "bg-[#D48F8F] text-white" : "bg-white text-muted-foreground hover:bg-muted/40"}`}
+                onClick={() => setAccountView("Closed")}
+              >
+                Closed ({closedAccounts.length})
+              </button>
             </div>
           </div>
-        </CardHeader>
-        <CardContent>
-          {accountsLoading ? <Loader2 className="w-5 h-5 animate-spin text-primary" /> : !selectedReport ? <p className="text-sm text-muted-foreground">No report available for this bureau.</p> : !visibleAccounts.length ? <p className="text-sm text-muted-foreground">No {accountView.toLowerCase()} accounts for this bureau.</p> : (
-            <div className="overflow-x-auto rounded-lg border">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Type</TableHead>
-                    <TableHead>Account name</TableHead>
-                    <TableHead>Account number</TableHead>
-                    <TableHead>Date opened</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead>Balance</TableHead>
-                    <TableHead>Credit Limit</TableHead>
-                    <TableHead>Credit Usage</TableHead>
-                    <TableHead>Monthly payment</TableHead>
-                    <TableHead>Responsibility</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {visibleAccounts.map((account: any) => (
-                    <TableRow key={account.id}>
-                      <TableCell>{account.creditAccountCategory || "—"}</TableCell>
-                      <TableCell>{account.accountName || "—"}</TableCell>
-                      <TableCell>{account.accountNumber || "—"}</TableCell>
-                      <TableCell>{account.dateOpened || "—"}</TableCell>
-                      <TableCell>{account.status || "—"}</TableCell>
-                      <TableCell>{formatMoney(account.balance)}</TableCell>
-                      <TableCell>{formatMoney(account.creditLimit)}</TableCell>
-                      <TableCell>{account.creditUsage || "—"}</TableCell>
-                      <TableCell>{formatMoney(account.monthlyPayment)}</TableCell>
-                      <TableCell>{account.responsibility || "—"}</TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
+          {!selectedReportId && (
+            <p className="text-xs text-muted-foreground mt-1">Click a report above to filter accounts by that report, or view all accounts below.</p>
           )}
-        </CardContent>
+        </CardHeader>
+        {expandedAccounts && (
+          <CardContent className="space-y-4">
+            <div className={`rounded-lg px-4 py-2 flex items-center justify-between ${viewBg}`}>
+              <span className="text-white font-semibold text-sm">{accountView} Accounts</span>
+              <span className="text-white text-xs opacity-90">{viewCount} account{viewCount !== 1 ? "s" : ""}</span>
+            </div>
+            {accountsLoading && <div className="flex justify-center py-4"><Loader2 className="w-5 h-5 animate-spin text-primary" /></div>}
+            {!accountsLoading && (
+              <div className="space-y-4">
+                {CATEGORIES.map(cat => {
+                  const accs = byCategory[cat];
+                  const colors = CATEGORY_COLORS[cat];
+                  const catCols = cols[cat];
+                  return (
+                    <div key={cat} className="rounded-lg overflow-hidden border">
+                      <div className={`px-4 py-2 flex items-center justify-between ${colors.header}`}>
+                        <span className="text-sm font-semibold tracking-wide">{cat}</span>
+                        <span className="text-xs opacity-80">{accs.length} account{accs.length !== 1 ? "s" : ""}</span>
+                      </div>
+                      <div className="overflow-x-auto">
+                        <Table>
+                          <TableHeader>
+                            <TableRow className="bg-muted/30">
+                              {catCols.map(c => <TableHead key={c.key} className="text-xs whitespace-nowrap py-2">{c.label}</TableHead>)}
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {accs.length === 0 ? (
+                              <TableRow>
+                                <TableCell colSpan={catCols.length} className={`text-center text-xs text-muted-foreground italic py-3 ${colors.row}`}>
+                                  No accounts in this category
+                                </TableCell>
+                              </TableRow>
+                            ) : accs.map((acc: any, idx: number) => (
+                              <TableRow key={acc.id} className={idx % 2 === 0 ? colors.row : "bg-white"}>
+                                {catCols.map(c => (
+                                  <TableCell key={c.key} className="text-xs whitespace-nowrap py-2">
+                                    {c.key === "balance" || c.key === "creditLimit" || c.key === "originalBalance" || c.key === "monthlyPayment"
+                                      ? fmtMoney(acc[c.key])
+                                      : fmt(acc[c.key])}
+                                  </TableCell>
+                                ))}
+                              </TableRow>
+                            ))}
+                          </TableBody>
+                        </Table>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </CardContent>
+        )}
       </Card>
     </div>
   );

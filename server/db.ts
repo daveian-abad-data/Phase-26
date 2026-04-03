@@ -360,20 +360,10 @@ export async function deleteInquiry(id: number) {
   await db.delete(creditReportInquiries).where(eq(creditReportInquiries.id, id));
 }
 
-export async function replaceInquiriesForReport(creditReportId: number, clientProfileId: number, rows: InsertCreditReportInquiry[]) {
-  const db = await getDb();
-  if (!db) throw new Error("DB unavailable");
-  await db.delete(creditReportInquiries).where(eq(creditReportInquiries.creditReportId, creditReportId));
-  if (rows.length > 0) {
-    await db.insert(creditReportInquiries).values(rows.map((row) => ({ ...row, creditReportId, clientProfileId })));
-  }
-}
-
 export async function deleteCreditReport(id: number) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  await db.delete(creditAccounts).where(eq(creditAccounts.creditReportId, id));
-  await db.delete(creditReportInquiries).where(eq(creditReportInquiries.creditReportId, id));
+  // Credit accounts are now flat (no creditReportId FK), so only delete the report itself
   await db.delete(creditReports).where(eq(creditReports.id, id));
 }
 

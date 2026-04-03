@@ -106,35 +106,34 @@ const staffProcedure = publicProcedure.use(async ({ ctx, next }) => {
 // Keep adminProcedure alias for backward compatibility
 const adminProcedure = staffProcedure;
 
-// ─── Client Profile Input Schema ──────────────────────────────────────────
-
 // ─── Credit report import helpers ────────────────────────────────────────
 
-const bureauEnum = z.enum(["Experian", "TransUnion", "Equifax"]);
 const accountCategoryEnum = z.enum(["Cards", "Car", "House", "Secured Loan", "Unsecured Loan", "Others"]);
 
 const creditSummaryImportSchema = z.object({
   reportId: z.number(),
-  bureau: bureauEnum.optional(),
+  bureau: z.string().optional().nullable(),
   reportDate: z.string().optional().nullable(),
   ficoScore: z.number().int().optional().nullable(),
   ficoScoreModel: z.string().optional().nullable(),
   evaluation: z.enum(["Poor", "Fair", "Good", "Very Good", "Exceptional"]).optional().nullable(),
   openAccounts: z.number().int().optional().nullable(),
   selfReportedAccounts: z.number().int().optional().nullable(),
-  accountsEverLate: z.number().int().optional().nullable(),
   closedAccounts: z.number().int().optional().nullable(),
   collectionsCount: z.number().int().optional().nullable(),
+  averageAccountAge: z.string().optional().nullable(),
+  oldestAccount: z.string().optional().nullable(),
   creditUsagePercent: z.string().optional().nullable(),
   creditUsed: z.string().optional().nullable(),
   creditLimit: z.string().optional().nullable(),
+  creditUsagePercentNoAU: z.string().optional().nullable(),
+  creditUsedNoAU: z.string().optional().nullable(),
+  creditLimitNoAU: z.string().optional().nullable(),
   creditCardDebt: z.string().optional().nullable(),
   selfReportedBalance: z.string().optional().nullable(),
   loanDebt: z.string().optional().nullable(),
   collectionsDebt: z.string().optional().nullable(),
   totalDebt: z.string().optional().nullable(),
-  averageAccountAge: z.string().optional().nullable(),
-  oldestAccount: z.string().optional().nullable(),
   reportPersonName: z.string().optional().nullable(),
   reportAlsoKnownAs: z.string().optional().nullable(),
   reportYearOfBirth: z.string().optional().nullable(),
@@ -176,6 +175,8 @@ const creditAccountImportRowSchema = z.object({
   creditAccountCategory: accountCategoryEnum.optional().nullable(),
   dispute: z.string().optional().nullable(),
 });
+
+// ─── Client Profile Input Schema ──────────────────────────────────────────
 
 const clientProfileInput = z.object({
   firstName: z.string().min(1),
@@ -899,7 +900,7 @@ export const appRouter = router({
     importCreditSummary: adminProcedure
       .input(creditSummaryImportSchema)
       .mutation(async ({ input }) => {
-        const { reportId, accountsEverLate: _accountsEverLate, ...data } = input;
+        const { reportId, ...data } = input;
         await updateCreditReport(reportId, data as any);
         return { success: true };
       }),
