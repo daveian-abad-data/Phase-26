@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { trpc } from "@/lib/trpc";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -189,6 +189,7 @@ function parseInquiriesImport(raw: string) {
 export default function ClientDetailCreditReports({ clientId }: Props) {
   const utils = trpc.useUtils();
   const [selectedBureau, setSelectedBureau] = useState<Bureau>("Experian");
+  const bureauInitializedRef = useRef(false);
   const [showReportDialog, setShowReportDialog] = useState(false);
   const [reportForm, setReportForm] = useState(emptyReportForm);
   const [summaryOpen, setSummaryOpen] = useState(false);
@@ -207,12 +208,22 @@ export default function ClientDetailCreditReports({ clientId }: Props) {
   );
 
   useEffect(() => {
+    if (bureauInitializedRef.current) return;
     if (!normalizedReports.length) return;
-    if (selectedReport) return;
+
+    const currentReportExists = normalizedReports.some((report: any) => report.normalizedBureau === selectedBureau);
+    if (currentReportExists) {
+      bureauInitializedRef.current = true;
+      return;
+    }
+
     const first = normalizedReports.find((report: any) => report.normalizedBureau) ?? normalizedReports[0];
     const normalized = normalizeBureau(first?.bureau);
-    if (normalized) setSelectedBureau(normalized);
-  }, [normalizedReports, selectedReport]);
+    if (normalized) {
+      setSelectedBureau(normalized);
+    }
+    bureauInitializedRef.current = true;
+  }, [normalizedReports, selectedBureau]);
 
   const reportId = selectedReport?.id ?? null;
   const { data: accounts, isLoading: accountsLoading } = trpc.admin.getCreditAccounts.useQuery(
